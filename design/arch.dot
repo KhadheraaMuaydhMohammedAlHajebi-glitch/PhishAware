@@ -1,0 +1,41 @@
+digraph G {
+  rankdir=TB; compound=true; nodesep=0.35; ranksep=0.45;
+  graph [fontname="Liberation Serif", fontsize=13, bgcolor="white", pad=0.3];
+  node  [fontname="Liberation Serif", fontsize=11, shape=box, style="rounded,filled", fillcolor="#FFFFFF", color="#34495E"];
+  edge  [fontname="Liberation Serif", fontsize=9, color="#34495E"];
+  
+
+  subgraph cluster_users { label="Users"; style="rounded,dashed"; color="#7F8C8D";
+    student [label="Student Participant\n(desktop / mobile browser)", fillcolor="#EAF2F8"];
+    admin   [label="Researcher-Administrator\n(authenticated)", fillcolor="#FDEDEC"];
+  }
+
+  subgraph cluster_p { label="Presentation Tier  (HTML5 / CSS3 / JavaScript, Jinja2 templates)"; style="rounded,filled"; fillcolor="#EAF2F8"; color="#2E86C1";
+    ui1 [label="Consent & Start\nPage"]; ui2 [label="Assessment &\nScenario Views"];
+    ui3 [label="Learning Module\nPages"]; ui4 [label="Feedback, Results &\nSUS Survey Views"]; ui5 [label="Admin Login &\nAggregate Dashboard"];
+  }
+
+  tls [label="HTTPS / TLS  •  CSRF token  •  Secure, HttpOnly, SameSite session cookie", shape=box, style="filled", fillcolor="#FEF9E7", color="#B7950B"];
+
+  subgraph cluster_a { label="Application Tier  (Python Flask – route controllers + service modules)"; style="rounded,filled"; fillcolor="#E9F7EF"; color="#1E8449";
+    m1 [label="M1 Consent &\nSession Manager"]; m2 [label="M2 Assessment\nEngine (pre/post)"]; m3 [label="M3 Learning\nContent Module"];
+    m4 [label="M4 Scenario Practice\n& Feedback Engine"]; m5 [label="M5 Scoring &\nAnalytics Module"]; m6 [label="M6 Usability\n(SUS) Survey"];
+    m7 [label="M7 Admin Auth &\nAggregate Reporting"];
+    {rank=same; m1; m2; m3; m4;} {rank=same; m5; m6; m7;}
+    m8 [label="M8 Security & Data-Protection Layer (cross-cutting): allowlist input validation • output encoding • RBAC / least privilege • error handling & minimal logging • retention & deletion jobs", fillcolor="#FDF2E9", color="#CA6F1E"];
+  }
+
+  subgraph cluster_d { label="Data Tier  (SQLite via parameterized queries; encrypted at rest)"; style="rounded,filled"; fillcolor="#F4ECF7"; color="#7D3C98";
+    db1 [label="Scenario & Item Bank\n(read-only content)", shape=cylinder]; db2 [label="Participant Records\n(random ID only)", shape=cylinder];
+    db3 [label="Responses, Scores\n& SUS Ratings", shape=cylinder]; db4 [label="Admin Account\n(hashed password)", shape=cylinder];
+    bk  [label="Encrypted Backup +\nGit Repository (code/docs)", shape=folder, fillcolor="#FFFFFF"];
+  }
+
+  student -> ui1; admin -> ui5;
+    {ui1 ui2 ui3 ui4 ui5} -> tls [arrowhead=none, color="#B7950B"];
+  tls -> m1 [label=" HTTP requests"]; tls -> m7 [label=" admin requests"];
+  m1 -> m2 [label="random ID"]; m2 -> m3 [label="pre-test done"]; m3 -> m4; m4 -> m5 [label=" practice results"];
+  m2 -> m5 [label=" pre/post answers"]; m6 -> m5 [dir=back, label="  then survey"]; m5 -> m7 [label=" aggregates only"];
+  {m1 m2 m4 m5 m6 m7} -> m8 [style=dotted, arrowhead=none, color="#CA6F1E"];
+  m8 -> db1; m8 -> db2; m8 -> db3; m8 -> db4; db3 -> bk [style=dashed, label=" nightly"];
+}
