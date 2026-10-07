@@ -183,7 +183,8 @@ class BackupTests(AppTestCase):
 
     def test_encrypted_file_that_is_not_a_database_is_rejected(self):
         self.consent()
-        for content in (b"not a database at all", b""):
+        truncated = b"SQLite format 3\x00" + b"\x00" * 200    # a header with no valid pages
+        for content in (b"not a database at all", b"", truncated):
             impostor = Path(self._tmp.name) / "impostor.enc"
             impostor.write_bytes(Fernet(self.key).encrypt(content))
             result = self.run_command("restore-db", str(impostor), "--yes")

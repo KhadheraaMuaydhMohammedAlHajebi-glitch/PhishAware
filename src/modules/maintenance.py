@@ -27,6 +27,7 @@ from flask.cli import with_appcontext
 from src import db, repository
 
 BACKUP_PATTERN = "phishaware-*.db.enc"
+SQLITE_HEADER = b"SQLite format 3\x00"   # the first 16 bytes of every SQLite database file
 REQUIRED_TABLES = {"participant", "scenario", "attempt", "response", "sus_response"}
 
 
@@ -120,13 +121,17 @@ def restore_backup(path):
         ) from error
     snapshot = sqlite3.connect(":memory:")
     try:
-        try:
-            snapshot.deserialize(plaintext)
-            healthy = snapshot.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
-            tables = {row[0] for row in snapshot.execute(
-                "SELECT name FROM sqlite_master WHERE type = 'table'")}
-        except sqlite3.DatabaseError:
-            healthy, tables = False, set()
+        healthy, tables = False, set()
+        # The header is checked first because deserialize() raises MemoryError,
+        # not a database error, when it is given an empty byte string.
+        if plaintext.startswith(SQLITE_HEADER):
+            try:
+                snapshot.deserialize(plaintext)
+                healthy = snapshot.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
+                tables = {row[0] for row in snapshot.execute(
+                    "SELECT name FROM sqlite_master WHERE type = 'table'")}
+            except sqlite3.DatabaseError:
+                healthy = False
         if not healthy or not REQUIRED_TABLES <= tables:
             raise click.ClickException(
                 "The file decrypted correctly but is not a PhishAware database. "
