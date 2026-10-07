@@ -214,6 +214,15 @@ progress::-moz-progress-bar { background: var(--teal); }
 .bar__value { font-family: var(--sans); font-size: 13px; fill: var(--muted); }
 .next-steps .cue-list { margin: 10px 0 4px; }
 
+/* Usability survey (FR-09) */
+.sus__item { margin: 0 0 20px; padding: 0; border: 0; min-width: 0; }
+.sus__item legend { display: flex; align-items: baseline; gap: 10px; width: 100%; margin-bottom: 10px; padding: 0 0 8px; border-bottom: 1px solid var(--line); font-weight: 700; color: var(--ink); }
+.sus__num { flex: none; width: 26px; height: 26px; display: inline-grid; place-items: center; border-radius: 50%; background: var(--mist); font-size: 0.85rem; }
+.sus__scale { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; }
+.sus__choice { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 10px 6px; border: 1px solid var(--line); border-radius: 8px; font-size: 0.9rem; text-align: center; cursor: pointer; }
+.sus__choice:has(input:checked) { background: var(--teal-tint); border-color: var(--teal); }
+.sus__choice input { width: 18px; height: 18px; margin: 0; accent-color: var(--teal); }
+
 /* Lessons */
 .lessons { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
 .lesson { display: flex; flex-direction: column; padding: 20px; background: var(--paper); border: 1px solid var(--line); border-radius: 12px; }
@@ -230,6 +239,8 @@ progress::-moz-progress-bar { background: var(--teal); }
   .workspace__side { position: static; }
   .lessons, .consent-grid, .stats { grid-template-columns: 1fr; }
   .cue-row { grid-template-columns: 1fr; gap: 4px; }
+  .sus__scale { grid-template-columns: 1fr; }
+  .sus__choice { flex-direction: row; justify-content: flex-start; padding: 8px 12px; }
   .step { grid-template-columns: 40px minmax(0, 1fr); }
   .step > .badge, .step > .btn { grid-column: 2; justify-self: start; }
   .sheet { padding: 22px 18px; }

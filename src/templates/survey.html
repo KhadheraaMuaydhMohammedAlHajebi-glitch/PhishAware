@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block title %}Usability survey{% endblock %}
+{% block content %}
+<section class="sheet sheet--narrow">
+  <p class="kicker">Final step: System Usability Scale</p>
+  <h1>How easy was PhishAware to use?</h1>
+  <p class="lead">Rate each statement. There are no right or wrong answers, and "the system" means PhishAware.</p>
+  {% if error %}<div class="alert alert--error" role="alert">{{ error }}</div>{% endif %}
+  <form method="post" action="{{ url_for('survey.survey_submit') }}" class="sus" data-once>
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    {% for item in items %}
+    {% set number = loop.index %}
+    <fieldset class="sus__item">
+      <legend><span class="sus__num" aria-hidden="true">{{ number }}</span><span>{{ item }}</span></legend>
+      <div class="sus__scale">
+        {% for value, label in scale %}
+        <label class="sus__choice">
+          <input type="radio" name="q{{ number }}" value="{{ value }}" required{% if selected.get(number) == value %} checked{% endif %}>
+          <span>{{ label }}</span>
+        </label>
+        {% endfor %}
+      </div>
+    </fieldset>
+    {% endfor %}
+    <div class="actions">
+      <button type="submit" class="btn btn--primary">Submit the survey</button>
+      <a class="btn btn--ghost" href="{{ url_for('results.results') }}">Back to your results</a>
+    </div>
+  </form>
+</section>
+{% endblock %}

@@ -70,4 +70,5 @@ def results():
         rows=chart_rows(cue_comparison(pre_responses, post_responses)),
         focus=[CUE_LABELS[cue] for cue in focus_areas(post_responses)],
         chart_width=BAR_FULL_WIDTH + 60,
+        survey_done=repository.get_sus(participant["id"]) is not None,
     )
