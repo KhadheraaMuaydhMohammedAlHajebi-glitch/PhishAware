@@ -2,6 +2,25 @@
 
 All notable changes to PhishAware are recorded here (Keep a Changelog format).
 
+## [0.5.0] - 2026-10-07 (Unit 5: core logic and unit testing)
+
+### Added
+- M2: counterbalanced post-assessment on the participant's second form, unlocked after the practice phase (FR-07).
+- M5: cue comparison, focus areas, and cohort statistics (mean gain, standard deviation, paired t, and Cohen's d_z); a personal results page with a CSP-safe SVG chart; and the `analytics` command for the three research questions (FR-08).
+- M6: ten-item System Usability Scale survey with allowlist validation and idempotent storage (FR-09).
+- `scripts/demo_core_logic.py`, which runs the core algorithms on inputs that can be checked by hand.
+- 27 new tests (66 in total): white-box tests for the analytics functions and black-box tests for the post-assessment, results page, survey, and command-line tools.
+
+### Changed
+- The assessment engine is phase-generic: the pre- and post-assessment share one code path driven by small configuration tables.
+
+### Fixed
+- The command-line tools failed under Flask's test runner with "Working outside of application context"; every command now uses `with_appcontext`.
+- `sus_score` accepted boolean ratings because `bool` is a subclass of `int`; they are now rejected.
+
+### Planned
+- 0.6.0 (Unit 6): administrator reporting (FR-11), encryption at rest, and pilot deployment.
+
 ## [0.4.0] - 2026-09-30 (Unit 4: initial implementation)
 
 ### Added
