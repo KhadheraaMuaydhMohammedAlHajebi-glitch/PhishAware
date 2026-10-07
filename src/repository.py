@@ -64,6 +64,10 @@ def delete_participants_before(cutoff):
 
 
 # Scenarios ------------------------------------------------------------------
+def scenario_count():
+    return get_db().execute("SELECT COUNT(*) AS n FROM scenario").fetchone()["n"]
+
+
 def scenarios_for_pool(pool):
     return get_db().execute(
         "SELECT id, pool, position, channel, cue, difficulty, label, content_json "

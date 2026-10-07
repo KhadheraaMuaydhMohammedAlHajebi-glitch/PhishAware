@@ -24,6 +24,14 @@ _SEED_SQL = (
 )
 
 
+# PRAGMA statements cannot take "?" parameters, so each allowed mode has its own
+# constant statement and no SQL text is ever assembled from a setting.
+_JOURNAL_SQL = {
+    "WAL": "PRAGMA journal_mode = WAL",
+    "DELETE": "PRAGMA journal_mode = DELETE",
+}
+
+
 def get_db():
     """Return one connection per request, creating it on first use."""
     if "db" not in g:
@@ -82,6 +90,16 @@ def init_db():
     return count
 
 
+def apply_journal_mode():
+    """Set the journal mode chosen in the configuration; returns the mode in effect.
+
+    The mode is stored in the database file, so setting it once at start-up is
+    enough for every later connection.
+    """
+    statement = _JOURNAL_SQL[current_app.config["SQLITE_JOURNAL_MODE"]]
+    return get_db().execute(statement).fetchone()[0].upper()
+
+
 def database_ready():
     """True when the schema exists and the scenario bank has been seeded."""
     try:
@@ -106,8 +124,11 @@ def init_db_command():
 def reset_db_command():
     """Development only: delete the database file and rebuild it."""
     close_db()
-    Path(current_app.config["DATABASE"]).unlink(missing_ok=True)
+    database = current_app.config["DATABASE"]
+    for suffix in ("", "-wal", "-shm"):  # the write-ahead log lives beside the database
+        Path(database + suffix).unlink(missing_ok=True)
     count = init_db()
+    apply_journal_mode()
     click.echo(f"Database rebuilt: {count} scenarios loaded, no participant data.")
 
 
