@@ -28,3 +28,20 @@ class DatabaseTests(AppTestCase):
         self.assertIn("Database rebuilt: 30 scenarios loaded, no participant data.", result.output)
         self.assertEqual(self.count("participant"), 0)
         self.assertEqual(self.count("scenario"), 30)
+
+    def test_database_from_an_earlier_release_gains_the_new_tables(self):
+        self.consent()
+        with self.app.app_context():                # recreate the 0.5.1 schema
+            get_db().execute("DROP TABLE admin_login_attempt")
+            get_db().commit()
+        upgraded = create_app({
+            "TESTING": True,
+            "DATABASE": self.app.config["DATABASE"],
+            "SECRET_KEY": "test-secret-key",
+        })
+        with upgraded.app_context():
+            tables = {row["name"] for row in get_db().execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table'")}
+            participants = get_db().execute("SELECT COUNT(*) AS n FROM participant").fetchone()
+        self.assertIn("admin_login_attempt", tables)
+        self.assertEqual(participants["n"], 1)      # upgrading keeps existing records
