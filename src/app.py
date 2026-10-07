@@ -8,7 +8,8 @@ from flask import Flask, render_template
 from src import __version__, db
 from src.config import Config
 from src.modules import (
-    admin, analytics, assessment, consent, learning, practice, results, survey,
+    admin, analytics, assessment, consent, learning, maintenance, practice, results,
+    survey,
 )
 from src.modules.scoring import CUE_LABELS
 from src.modules.security import (
@@ -34,6 +35,7 @@ def create_app(test_config=None):
     Path(app.config["DATABASE"]).parent.mkdir(parents=True, exist_ok=True)
 
     db.init_app(app)
+    maintenance.init_app(app)
     app.cli.add_command(analytics.analytics_command)
     app.cli.add_command(admin.create_admin_command)
     for module in (consent, assessment, learning, practice, results, survey, admin):

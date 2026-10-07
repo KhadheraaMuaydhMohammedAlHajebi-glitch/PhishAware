@@ -48,6 +48,21 @@ def delete_participant(participant_id):
     db.commit()
 
 
+def participants_before(cutoff):
+    """Number of participants whose consent is older than the cutoff time (NFR-12)."""
+    row = get_db().execute(
+        "SELECT COUNT(*) AS n FROM participant WHERE consented_at < ?", (cutoff,)
+    ).fetchone()
+    return row["n"]
+
+
+def delete_participants_before(cutoff):
+    """Retention job: ON DELETE CASCADE removes every linked record, as in withdrawal."""
+    db = get_db()
+    db.execute("DELETE FROM participant WHERE consented_at < ?", (cutoff,))
+    db.commit()
+
+
 # Scenarios ------------------------------------------------------------------
 def scenarios_for_pool(pool):
     return get_db().execute(
