@@ -6,7 +6,7 @@ the result limit, incomplete cases, and the zero-variance cohort.
 
 import unittest
 
-from src.modules import scoring
+from src.modules import analytics, scoring
 
 
 class CueComparisonTests(unittest.TestCase):
@@ -89,3 +89,17 @@ class CohortSummaryTests(unittest.TestCase):
     def test_requires_two_complete_participants(self):
         with self.assertRaises(ValueError):
             scoring.cohort_summary([{"pre": 50.0, "post": 75.0}, {"pre": 60.0, "post": None}])
+
+
+class ReportFormatTests(unittest.TestCase):
+    def test_identical_gains_and_unmeasured_cues_are_reported_plainly(self):
+        report = {
+            "consented": 2,
+            "summary": scoring.cohort_summary(
+                [{"pre": 50.0, "post": 75.0}, {"pre": 25.0, "post": 50.0}]),
+            "cues": scoring.cue_comparison([("sender_spoofing", False)], []),
+        }
+        text = "\n".join(analytics.format_report(report))
+        self.assertIn("SD of gains 0.0: identical gains, no effect size", text)
+        self.assertRegex(text, r"Sender spoofing +100% -> +n/a")
+        self.assertTrue(text.endswith("RQ3  Mean SUS score: no survey responses yet"))

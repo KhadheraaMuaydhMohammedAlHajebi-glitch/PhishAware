@@ -37,3 +37,10 @@ class CommandLineTests(AppTestCase):
             client.post("/survey", data=self.survey_data(ratings, client))
         output = self.app.test_cli_runner().invoke(args=["analytics"]).output
         self.assertIn("RQ3  Mean SUS score: 80.0", output)
+
+    def test_analytics_command_waits_for_two_complete_participants(self):
+        self.reach_posttest()
+        self.answer_posttest()
+        output = self.app.test_cli_runner().invoke(args=["analytics"]).output
+        self.assertIn("Participants who consented: 1", output)
+        self.assertIn("Not enough data yet", output)

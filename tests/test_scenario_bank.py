@@ -59,3 +59,8 @@ class ScenarioBankTests(unittest.TestCase):
         for item in BANK:
             for host in hosts(item):
                 self.assertTrue(host.endswith((".example", ".test")), f"{item['id']}: {host}")
+
+    def test_an_unbalanced_form_is_reported(self):
+        problems = validate_form(pool("A")[1:])   # one item short
+        self.assertIn("expected 12 items, found 11", problems)
+        self.assertEqual(len(problems), 3)        # item count, one cue, and label balance

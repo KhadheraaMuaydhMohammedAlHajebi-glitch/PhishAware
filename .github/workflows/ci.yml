@@ -1,6 +1,7 @@
 # Continuous integration for PhishAware (see the Unit 4 CI/CD Reflection Report).
-# Every push and pull request must pass linting, unit tests, static security
-# analysis, and a dependency audit before it can be merged into develop or main.
+# Every push and pull request must pass linting, unit tests with a statement-coverage
+# threshold, static security analysis, and a dependency audit before it can be merged
+# into develop or main.
 name: CI
 
 on:
@@ -34,8 +35,10 @@ jobs:
       - name: Lint (flake8)
         run: flake8 src tests scripts run.py
 
-      - name: Unit tests (pytest)
-        run: pytest -v
+      - name: Unit tests with statement coverage (pytest, coverage.py)
+        run: |
+          coverage run -m pytest -v
+          coverage report --fail-under=90
 
       - name: Static security analysis (Bandit)
         run: bandit -r src -ll
