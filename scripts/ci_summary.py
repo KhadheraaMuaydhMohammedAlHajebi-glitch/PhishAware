@@ -38,12 +38,22 @@ def last_match(pattern, text, default="not available"):
     return matches[-1].strip() if matches else default
 
 
+def bandit_result(text):
+    """'No issues identified.' or the number of findings at each severity."""
+    if "No issues identified." in text:
+        return "No issues identified."
+    block = re.search(r"Total issues \(by severity\):\s*((?:\s*\w+: \d+\s*)+)", text)
+    if block is None:
+        return "not available"
+    return ", ".join(part.strip() for part in block.group(1).strip().splitlines())
+
+
 def quality():
     """Summarise the test, coverage, and security-scan logs."""
     rows = [
         ("Tests", last_match(r"^=*\s*(\d+ passed.*?)\s*=*$", read("pytest.log"))),
         ("Statement coverage", last_match(r"^TOTAL\s+(.*)$", read("coverage.txt"))),
-        ("Bandit", last_match(r"^\s*(No issues identified\.|Total issues.*)$", read("bandit.txt"))),
+        ("Bandit", bandit_result(read("bandit.txt"))),
         ("pip-audit", last_match(r"^(No known vulnerabilities found.*|Found \d+ known.*)$",
                                  read("audit.txt"))),
     ]

@@ -28,8 +28,11 @@ graceful_timeout = 30    # time for requests in flight to finish on shutdown
 keepalive = 5            # keep an idle connection from the proxy open (seconds)
 
 # Heartbeat files go to memory when it is available: the container's root file
-# system is read-only.
-worker_tmp_dir = "/dev/shm" if os.path.isdir("/dev/shm") else None
+# system is read-only. Bandit reports a fixed temporary directory here (B108).
+# The finding does not apply: Gunicorn creates the file with mkstemp, under a
+# random name, and no other tenant shares the container's /dev/shm.
+SHARED_MEMORY = "/dev/shm"  # nosec B108
+worker_tmp_dir = SHARED_MEMORY if os.path.isdir(SHARED_MEMORY) else None
 control_socket_disable = True   # no runtime control socket: nothing here needs one
 
 # No access log. Each line would record a client IP address, which the consent
