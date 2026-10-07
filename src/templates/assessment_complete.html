@@ -1,8 +1,9 @@
 {% extends "base.html" %}
-{% block title %}Pre-assessment complete{% endblock %}
+{% block title %}{{ label }} complete{% endblock %}
 {% block content %}
 <section class="sheet sheet--narrow score-sheet">
-  <p class="kicker">Pre-assessment complete, Form {{ form }}</p>
+  <p class="kicker">{{ label }} complete, Form {{ form }}</p>
+  {% if phase == 'pre' %}
   <h1>Your baseline is saved</h1>
   <p class="score">{{ '%.1f'|format(score) }}<small>%</small></p>
   <p class="lead">You classified {{ correct }} of {{ total }} correctly. At the end you will compare this baseline with your post-assessment.</p>
@@ -10,5 +11,13 @@
     <a class="btn btn--primary" href="{{ url_for('learning.lessons') }}">Start the lessons</a>
     <a class="btn btn--ghost" href="{{ url_for('consent.dashboard') }}">Back to dashboard</a>
   </div>
+  {% else %}
+  <h1>Your final score is saved</h1>
+  <p class="score">{{ '%.1f'|format(score) }}<small>%</small></p>
+  <p class="lead">You classified {{ correct }} of {{ total }} correctly on a form you had not seen before.</p>
+  <div class="actions">
+    <a class="btn btn--primary" href="{{ url_for('consent.dashboard') }}">Back to dashboard</a>
+  </div>
+  {% endif %}
 </section>
 {% endblock %}
