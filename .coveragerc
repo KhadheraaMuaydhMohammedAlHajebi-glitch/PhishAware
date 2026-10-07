@@ -1,0 +1,6 @@
+# Statement coverage of the application code (tests and scripts are not measured).
+[run]
+source = src
+
+[report]
+show_missing = True
