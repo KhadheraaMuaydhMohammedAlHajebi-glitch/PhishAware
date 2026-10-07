@@ -1,30 +1,44 @@
 # Continuous integration for PhishAware (see the Unit 4 CI/CD Reflection Report).
-# Every push and pull request must pass linting, unit tests with a statement-coverage
-# threshold, static security analysis, and a dependency audit before it can be merged
-# into develop or main.
+#
+# Job 1, quality gate: every push must pass linting, the unit tests with a
+# statement-coverage threshold, static security analysis, and a dependency audit,
+# on the oldest supported Python and on the version the container image uses.
+#
+# Job 2, container: the production image is built and started behind its HTTPS
+# reverse proxy exactly as docs/deployment.md describes, and the running stack is
+# smoke-tested. A change is integrated only when the artifact that would be
+# deployed has been built and exercised.
 name: CI
 
 on:
   push:
-    branches: [main, develop, "feature/**"]
+    branches: [main, develop, "feature/**", "fix/**", "release/**"]
   pull_request:
     branches: [main, develop]
 
 permissions:
   contents: read
 
+defaults:
+  run:
+    shell: bash   # bash runs with "-eo pipefail", so a failure before "| tee" still fails the step
+
 jobs:
   quality-gate:
-    name: Lint, test, and security scan
-    runs-on: ubuntu-latest
+    name: Lint, test, and security scan (Python ${{ matrix.python }})
+    runs-on: ubuntu-24.04   # pinned: "ubuntu-latest" moves to a new release without notice
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.11", "3.13"]
     steps:
       - name: Check out the code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
-      - name: Set up Python 3.12
-        uses: actions/setup-python@v5
+      - name: Set up Python ${{ matrix.python }}
+        uses: actions/setup-python@v6
         with:
-          python-version: "3.12"
+          python-version: ${{ matrix.python }}
           cache: pip
 
       - name: Install dependencies
@@ -33,15 +47,108 @@ jobs:
           pip install -r requirements-dev.txt
 
       - name: Lint (flake8)
-        run: flake8 src tests scripts run.py
+        run: flake8 src tests scripts run.py wsgi.py gunicorn.conf.py
 
       - name: Unit tests with statement coverage (pytest, coverage.py)
         run: |
-          coverage run -m pytest -v
-          coverage report --fail-under=90
+          coverage run -m pytest -q 2>&1 | tee pytest.log
+          coverage report --fail-under=90 | tee coverage.txt
 
       - name: Static security analysis (Bandit)
-        run: bandit -r src -ll
+        run: bandit -r src wsgi.py gunicorn.conf.py -ll 2>&1 | tee bandit.txt
 
       - name: Dependency vulnerability audit (pip-audit)
-        run: pip-audit -r requirements.txt
+        run: pip-audit -r requirements-prod.txt 2>&1 | tee audit.txt
+
+      - name: Publish the results
+        if: always()
+        run: python scripts/ci_summary.py quality
+
+      - name: Show the end of each log if a step failed
+        if: failure()
+        run: python scripts/ci_summary.py failure pytest.log coverage.txt bandit.txt audit.txt
+
+  container:
+    name: Build the image and smoke-test the HTTPS stack
+    runs-on: ubuntu-24.04
+    needs: quality-gate
+    env:
+      PHISHAWARE_VERSION: ci
+    steps:
+      - name: Check out the code
+        uses: actions/checkout@v6
+
+      - name: Write a throwaway .env with generated secrets
+        run: |
+          {
+            echo "PHISHAWARE_ENV=production"
+            echo "PHISHAWARE_SECRET_KEY=$(python3 -c 'import secrets; print(secrets.token_hex(32))')"
+            echo "PHISHAWARE_BACKUP_KEY=$(python3 -c 'import base64, os; print(base64.urlsafe_b64encode(os.urandom(32)).decode())')"
+            echo "PHISHAWARE_DOMAIN=localhost"
+          } > .env
+
+      - name: Build the image
+        run: docker compose build 2>&1 | tee build.log
+
+      - name: Refuse to start without a secret key (fail-fast configuration)
+        run: |
+          if docker run --rm phishaware:ci python -c "import wsgi" > failfast.log 2>&1; then
+            echo "The application started without PHISHAWARE_SECRET_KEY." | tee -a failfast.log
+            exit 1
+          fi
+          grep -q "PHISHAWARE_SECRET_KEY must be set" failfast.log
+
+      - name: Start the stack and wait until it is healthy
+        run: docker compose up --detach --wait --wait-timeout 120 2>&1 | tee up.log
+
+      - name: Smoke-test HTTPS through the reverse proxy
+        run: |
+          # Trust the proxy's local certificate authority instead of skipping verification.
+          for attempt in $(seq 1 30); do
+            docker compose cp proxy:/data/caddy/pki/authorities/local/root.crt caddy-root.crt \
+              > /dev/null 2>&1 && break
+            sleep 1
+          done
+          curl --fail --silent --show-error --retry 15 --retry-delay 1 --retry-all-errors \
+            --cacert caddy-root.crt https://localhost/healthz | tee smoke.log
+          grep -q '"status":"ok"' smoke.log
+          # Plain HTTP is redirected, and the hardened headers arrive over HTTPS.
+          test "$(curl --silent --output /dev/null --write-out '%{http_code}' http://localhost/consent)" = "308"
+          curl --fail --silent --head --cacert caddy-root.crt https://localhost/consent | tee -a smoke.log
+          grep -qi '^strict-transport-security: max-age=31536000' smoke.log
+          grep -qi '^content-security-policy: default-src' smoke.log
+          grep -i '^set-cookie: session=' smoke.log | grep -q '; Secure'
+          grep -i '^set-cookie: session=' smoke.log | grep -q '; HttpOnly'
+
+      - name: Check the container's hardening
+        run: |
+          test "$(docker compose exec -T app id -u)" = "10001"   # the server is not root
+          if docker compose exec -T app sh -c 'touch /app/probe' 2> /dev/null; then
+            echo "The application code is writable at run time." | tee hardening.log
+            exit 1
+          fi
+          docker compose exec -T app sh -c 'touch /data/probe && rm /data/probe'
+
+      - name: Run the operational commands inside the container
+        run: |
+          {
+            docker compose exec -T app flask create-admin --username ci-admin \
+              --password "$(python3 -c 'import secrets; print(secrets.token_urlsafe(18))')"
+            docker compose exec -T app flask backup-db
+            docker compose exec -T app flask purge-expired --dry-run
+            docker compose exec -T app flask analytics
+          } 2>&1 | tee commands.log
+          grep -q "Administrator 'ci-admin' created." commands.log
+          grep -q "Encrypted backup written: /data/backups/phishaware-" commands.log
+
+      - name: Show the end of each log if a step failed
+        if: failure()
+        run: |
+          docker compose ps > ps.log 2>&1 || true
+          docker compose logs --no-color --tail 60 > stack.log 2>&1 || true
+          python3 scripts/ci_summary.py failure build.log failfast.log up.log smoke.log \
+            hardening.log commands.log ps.log stack.log
+
+      - name: Stop the stack
+        if: always()
+        run: docker compose down --volumes
