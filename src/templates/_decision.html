@@ -1,0 +1,9 @@
+<form method="post" action="{{ submit_url }}" class="decision" data-once>
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <input type="hidden" name="scenario_id" value="{{ scenario.id }}">
+  <p class="decision__prompt" id="decision-prompt">Is this {{ 'email' if scenario.channel == 'email' else 'web page' }} phishing or legitimate?</p>
+  <div class="decision__buttons" role="group" aria-labelledby="decision-prompt">
+    <button type="submit" name="answer" value="phishing" class="btn btn--phish">Phishing</button>
+    <button type="submit" name="answer" value="legitimate" class="btn btn--legit">Legitimate</button>
+  </div>
+</form>

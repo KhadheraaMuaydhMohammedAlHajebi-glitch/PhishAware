@@ -1,0 +1,105 @@
+"""Data tier: SQLite connection management, schema creation, and seeding.
+
+Every query in PhishAware uses "?" placeholders (parameterized queries), so
+user input is never concatenated into SQL (NFR-09, OWASP ASVS).
+"""
+
+import json
+import sqlite3
+from pathlib import Path
+
+import click
+from flask import current_app, g
+
+SCHEMA_FILE = Path(__file__).with_name("schema.sql")
+
+# Upsert keeps seeding idempotent: re-running it updates edited scenarios.
+_SEED_SQL = (
+    "INSERT INTO scenario (id, pool, position, channel, cue, difficulty, label, content_json) "
+    "VALUES (?, ?, ?, ?, ?, ?, ?, ?) "
+    "ON CONFLICT(id) DO UPDATE SET pool = excluded.pool, position = excluded.position, "
+    "channel = excluded.channel, cue = excluded.cue, difficulty = excluded.difficulty, "
+    "label = excluded.label, content_json = excluded.content_json"
+)
+
+
+def get_db():
+    """Return one connection per request, creating it on first use."""
+    if "db" not in g:
+        connection = sqlite3.connect(current_app.config["DATABASE"])
+        connection.row_factory = sqlite3.Row
+        # SQLite disables foreign keys by default; they are needed for the
+        # ON DELETE CASCADE that implements withdrawal (FR-10).
+        connection.execute("PRAGMA foreign_keys = ON")
+        g.db = connection
+    return g.db
+
+
+def close_db(_error=None):
+    """Close the request's connection (registered as a teardown handler)."""
+    connection = g.pop("db", None)
+    if connection is not None:
+        connection.close()
+
+
+def load_scenario_bank(path):
+    """Read the fictional scenario bank from JSON."""
+    with open(path, encoding="utf-8") as handle:
+        return json.load(handle)
+
+
+def seed_scenarios(connection, path):
+    """Insert or update every scenario from the JSON bank. Returns the count."""
+    bank = load_scenario_bank(path)
+    for item in bank["scenarios"]:
+        connection.execute(
+            _SEED_SQL,
+            (
+                item["id"], item["pool"], item["position"], item["channel"],
+                item["cue"], item["difficulty"], item["label"], json.dumps(item),
+            ),
+        )
+    return len(bank["scenarios"])
+
+
+def init_db():
+    """Create tables (if missing) and seed the scenario bank."""
+    connection = get_db()
+    connection.executescript(SCHEMA_FILE.read_text(encoding="utf-8"))
+    count = seed_scenarios(connection, current_app.config["SCENARIO_FILE"])
+    connection.commit()
+    return count
+
+
+def database_ready():
+    """True when the schema exists and the scenario bank has been seeded."""
+    try:
+        row = get_db().execute("SELECT COUNT(*) AS n FROM scenario").fetchone()
+        return row["n"] > 0
+    except sqlite3.OperationalError:
+        return False
+
+
+@click.command("init-db")
+def init_db_command():
+    """Create the database schema and load the scenario bank."""
+    count = init_db()
+    click.echo(f"Database ready: {count} scenarios loaded.")
+    click.echo(f"Location: {current_app.config['DATABASE']}")
+
+
+@click.command("reset-db")
+@click.confirmation_option(prompt="This deletes ALL participant data. Continue?")
+def reset_db_command():
+    """Development only: delete the database file and rebuild it."""
+    close_db()
+    Path(current_app.config["DATABASE"]).unlink(missing_ok=True)
+    count = init_db()
+    click.echo(f"Database rebuilt: {count} scenarios loaded, no participant data.")
+
+
+def init_app(app):
+    """Register teardown and CLI commands with the application."""
+    app.teardown_appcontext(close_db)
+    app.cli.add_command(init_db_command)
+    app.cli.add_command(reset_db_command)

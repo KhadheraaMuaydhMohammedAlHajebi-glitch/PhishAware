@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block title %}Feedback{% endblock %}
+{% block content %}
+<div class="result {{ 'result--correct' if correct else 'result--incorrect' }}" role="status">
+  <span class="result__icon" aria-hidden="true">
+    {% if correct %}
+    <svg viewBox="0 0 24 24" width="26" height="26"><path d="M5 12.5l4.2 4.2L19 7" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    {% else %}
+    <svg viewBox="0 0 24 24" width="26" height="26"><path d="M12 5.5v8.5" stroke="#fff" stroke-width="3" stroke-linecap="round"/><circle cx="12" cy="18.3" r="1.8" fill="#fff"/></svg>
+    {% endif %}
+  </span>
+  <div>
+    <p class="result__title">{{ 'Correct. Well spotted.' if correct else 'Not quite. Here is what to look for.' }}</p>
+    <p>You answered <strong>{{ answer|capitalize }}</strong>. This {{ 'email' if scenario.channel == 'email' else 'web page' }} is
+      <span class="verdict verdict--{{ scenario.label }}">{{ scenario.label|capitalize }}</span>, and the cue it tests is {{ cue_label|lower }}.</p>
+  </div>
+</div>
+<div class="workspace">
+  <section class="workspace__main">
+    <h1 class="visually-hidden">Feedback on practice scenario {{ answered }} of {{ total }}</h1>
+    {% include "_scenario.html" %}
+  </section>
+  <aside class="workspace__side">
+    <div class="panel">
+      <h2 class="panel__title">Why</h2>
+      <p>{{ scenario.feedback.explanation }}</p>
+      <h3 class="panel__subtitle">{{ 'Red flags' if scenario.label == 'phishing' else 'Trust signals' }}</h3>
+      <ul class="cue-list cue-list--{{ 'phish' if scenario.label == 'phishing' else 'legit' }}">
+        {% for cue in scenario.feedback.cues %}<li>{{ cue }}</li>{% endfor %}
+      </ul>
+      <div class="safe-action">
+        <h3 class="panel__subtitle">Safe action</h3>
+        <p>{{ scenario.feedback.safe_action }}</p>
+      </div>
+      {% if answered < total %}
+      <a class="btn btn--primary btn--block" href="{{ url_for('practice.practice_item') }}">Next scenario ({{ answered + 1 }} of {{ total }})</a>
+      {% else %}
+      <a class="btn btn--primary btn--block" href="{{ url_for('practice.practice_complete') }}">See practice summary</a>
+      {% endif %}
+    </div>
+  </aside>
+</div>
+{% endblock %}

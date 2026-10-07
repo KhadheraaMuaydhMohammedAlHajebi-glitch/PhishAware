@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block title %}Withdraw{% endblock %}
+{% block content %}
+<section class="sheet sheet--narrow">
+  <h1>Withdraw and delete your data?</h1>
+  <p class="lead">This permanently deletes your consent record, answers, and scores. There is no penalty, and it cannot be undone.</p>
+  <form method="post" action="{{ url_for('consent.withdraw') }}" data-once>
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <div class="actions">
+      <button type="submit" class="btn btn--danger">Delete my data and withdraw</button>
+      <a class="btn btn--ghost" href="{{ url_for('consent.dashboard') }}">Keep my data and go back</a>
+    </div>
+  </form>
+</section>
+{% endblock %}

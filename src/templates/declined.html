@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+{% block title %}Not taking part{% endblock %}
+{% block content %}
+<section class="sheet sheet--narrow">
+  <h1>Nothing was stored</h1>
+  <p class="lead">You chose not to take part, so no record was created. You can close this tab.</p>
+  <div class="actions"><a class="btn btn--ghost" href="{{ url_for('consent.consent_form') }}">Back to the consent page</a></div>
+</section>
+{% endblock %}

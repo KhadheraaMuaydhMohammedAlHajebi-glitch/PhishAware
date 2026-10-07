@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}PhishAware{% endblock %} | PhishAware</title>
+  <link rel="icon" href="{{ url_for('static', filename='img/favicon.svg') }}" type="image/svg+xml">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+  <script src="{{ url_for('static', filename='js/app.js') }}" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to main content</a>
+  <header class="topbar">
+    <div class="topbar__inner">
+      <a class="brand" href="{{ url_for('consent.index') }}" aria-label="PhishAware home">
+        <svg class="brand__logo" viewBox="0 0 32 32" width="34" height="34" aria-hidden="true">
+          <path d="M16 2 28 6.5V15c0 7.5-5.2 12.8-12 15C9.2 27.8 4 22.5 4 15V6.5Z" fill="#2BB3A6"/>
+          <path d="M19 9v9a4 4 0 0 1-8 0v-2.5l2.2 1.7" fill="none" stroke="#10213A" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"/>
+          <circle cx="19" cy="7.3" r="1.6" fill="none" stroke="#10213A" stroke-width="1.6"/>
+        </svg>
+        <span class="brand__name">Phish<span>Aware</span></span>
+      </a>
+      {% if session_participant %}
+      <nav class="topbar__nav" aria-label="Session">
+        <span class="session-tag" title="Your anonymous session identifier">Anonymous session {{ session_participant['id'][-6:] }}</span>
+        <a class="topbar__link" href="{{ url_for('consent.dashboard') }}">Dashboard</a>
+        <a class="topbar__link topbar__link--quiet" href="{{ url_for('consent.withdraw_confirm') }}">Withdraw</a>
+      </nav>
+      {% endif %}
+    </div>
+  </header>
+  <main id="main" class="page">
+    {% block content %}{% endblock %}
+  </main>
+  <footer class="footer">
+    <p>PhishAware prototype {{ app_version }}, MSIT 5910 Capstone Project. For learning only.</p>
+    <p>Every organization, person, and web address here is fictional and uses reserved <code>.example</code> or <code>.test</code> domains. Links are disabled.</p>
+  </footer>
+</body>
+</html>
