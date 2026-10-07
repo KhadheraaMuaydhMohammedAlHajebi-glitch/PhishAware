@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block title %}Administrator sign-in{% endblock %}
+{% block content %}
+<section class="sheet sheet--form">
+  <p class="kicker">Researcher access</p>
+  <h1>Administrator sign-in</h1>
+  <p class="lead">This area shows aggregate pilot results. It never lists individual participants.</p>
+  {% if error %}<div class="alert alert--error" role="alert">{{ error }}</div>{% endif %}
+  {% if notice %}<div class="alert alert--info" role="status">{{ notice }}</div>{% endif %}
+  <form method="post" action="{{ url_for('admin.login') }}" data-once>
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <label class="field">
+      <span class="field__label">Username</span>
+      <input class="field__input" type="text" name="username" autocomplete="username" autocapitalize="none" spellcheck="false" maxlength="32" required>
+    </label>
+    <label class="field">
+      <span class="field__label">Password</span>
+      <input class="field__input" type="password" name="password" autocomplete="current-password" required>
+    </label>
+    <div class="actions">
+      <button type="submit" class="btn btn--primary">Sign in</button>
+      <a class="btn btn--ghost" href="{{ url_for('consent.index') }}">Back to PhishAware</a>
+    </div>
+  </form>
+</section>
+{% endblock %}

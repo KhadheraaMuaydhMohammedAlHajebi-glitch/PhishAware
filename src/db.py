@@ -63,10 +63,20 @@ def seed_scenarios(connection, path):
     return len(bank["scenarios"])
 
 
+def ensure_schema():
+    """Create any table or index that is missing.
+
+    Every statement in schema.sql is IF NOT EXISTS, so running the script again
+    is harmless. Running it on each start upgrades a database that an earlier
+    release created, for example by adding the tables that M7 introduced.
+    """
+    get_db().executescript(SCHEMA_FILE.read_text(encoding="utf-8"))
+
+
 def init_db():
     """Create tables (if missing) and seed the scenario bank."""
     connection = get_db()
-    connection.executescript(SCHEMA_FILE.read_text(encoding="utf-8"))
+    ensure_schema()
     count = seed_scenarios(connection, current_app.config["SCENARIO_FILE"])
     connection.commit()
     return count

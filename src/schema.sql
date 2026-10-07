@@ -70,8 +70,9 @@ CREATE TABLE IF NOT EXISTS sus_response (
     submitted_at TEXT NOT NULL
 );
 
--- M7 (planned for release 0.6): administrator accounts. Deliberately unrelated
--- to participant data so accounts can never be joined to individual learners.
+-- M7: administrator accounts (FR-11). Deliberately unrelated to participant
+-- data so accounts can never be joined to individual learners. "created_at" is
+-- refreshed whenever the password changes, which signs out older sessions.
 CREATE TABLE IF NOT EXISTS admin_user (
     id            INTEGER PRIMARY KEY AUTOINCREMENT,
     username      TEXT NOT NULL UNIQUE,
@@ -79,7 +80,16 @@ CREATE TABLE IF NOT EXISTS admin_user (
     created_at    TEXT NOT NULL
 );
 
+-- M7: failed sign-in attempts, kept only long enough to rate-limit guessing
+-- (NFR-10). The key is the attempted username, never an IP address (NFR-11).
+CREATE TABLE IF NOT EXISTS admin_login_attempt (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    username     TEXT NOT NULL,
+    attempted_at TEXT NOT NULL
+);
+
 -- Indexes support the NFR-01 response-time target.
 CREATE INDEX IF NOT EXISTS idx_attempt_participant ON attempt (participant_id);
 CREATE INDEX IF NOT EXISTS idx_response_attempt    ON response (attempt_id);
 CREATE INDEX IF NOT EXISTS idx_scenario_pool       ON scenario (pool, position);
+CREATE INDEX IF NOT EXISTS idx_login_attempt       ON admin_login_attempt (username, attempted_at);

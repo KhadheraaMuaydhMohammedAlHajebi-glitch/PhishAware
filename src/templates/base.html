@@ -20,7 +20,16 @@
         </svg>
         <span class="brand__name">Phish<span>Aware</span></span>
       </a>
-      {% if session_participant %}
+      {% if session_admin %}
+      <nav class="topbar__nav" aria-label="Administrator session">
+        <span class="session-tag">Administrator {{ session_admin['username'] }}</span>
+        <a class="topbar__link" href="{{ url_for('admin.dashboard') }}">Pilot results</a>
+        <form method="post" action="{{ url_for('admin.logout') }}" class="topbar__form">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <button type="submit" class="topbar__link topbar__link--quiet topbar__button">Sign out</button>
+        </form>
+      </nav>
+      {% elif session_participant %}
       <nav class="topbar__nav" aria-label="Session">
         <span class="session-tag" title="Your anonymous session identifier">Anonymous session {{ session_participant['id'][-6:] }}</span>
         <a class="topbar__link" href="{{ url_for('consent.dashboard') }}">Dashboard</a>

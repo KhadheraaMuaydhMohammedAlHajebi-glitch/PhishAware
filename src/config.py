@@ -38,3 +38,9 @@ class Config:
     SESSION_COOKIE_SAMESITE = "Lax"
     SESSION_COOKIE_SECURE = os.environ.get("PHISHAWARE_COOKIE_SECURE", "0") == "1"
     PERMANENT_SESSION_LIFETIME = 2 * 60 * 60  # seconds (two hours)
+
+    # Administrator access (M7, NFR-10): idle sign-out and sign-in rate limit.
+    ADMIN_IDLE_TIMEOUT = 15 * 60       # seconds without a request before sign-out
+    ADMIN_MAX_FAILED_LOGINS = 5        # failed attempts allowed per username ...
+    ADMIN_MAX_FAILED_TOTAL = 50        # ... and across all usernames ...
+    ADMIN_LOCKOUT_SECONDS = 15 * 60    # ... within this many seconds

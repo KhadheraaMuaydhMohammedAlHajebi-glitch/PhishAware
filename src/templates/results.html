@@ -22,20 +22,7 @@
 <section class="sheet chart">
   <h2>Correct answers by cue</h2>
   <p class="chart__legend"><span class="key key--pre" aria-hidden="true"></span>Before training <span class="key key--post" aria-hidden="true"></span>After training. Each assessment has two items per cue.</p>
-  <div class="cue-chart">
-    {% for row in rows %}
-    <div class="cue-row">
-      <p class="cue-row__label">{{ row.label }}</p>
-      {# Bar lengths are SVG width attributes: the CSP forbids inline styles. #}
-      <svg class="cue-row__bars" viewBox="0 0 {{ chart_width }} 44" role="img" aria-label="{{ row.label }}: {{ row.pre }}% correct before training, {{ row.post }}% after training">
-        <rect class="bar bar--pre" x="0" y="2" width="{{ row.pre_width }}" height="16" rx="3"></rect>
-        <text class="bar__value" x="{{ row.pre_width + 8 }}" y="15">{{ row.pre }}%</text>
-        <rect class="bar bar--post" x="0" y="24" width="{{ row.post_width }}" height="16" rx="3"></rect>
-        <text class="bar__value" x="{{ row.post_width + 8 }}" y="37">{{ row.post }}%</text>
-      </svg>
-    </div>
-    {% endfor %}
-  </div>
+  {% include "_cue_chart.html" %}
 </section>
 <section class="sheet next-steps">
   <h2>What to practice next</h2>

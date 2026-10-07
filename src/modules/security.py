@@ -1,22 +1,25 @@
 """M8 Security & Data Protection: the cross-cutting layer used by every module.
 
 Implements the Unit 3 safeguards informed by OWASP ASVS: anti-forgery tokens,
-allowlist input validation, consent gating, hardened HTTP headers, and safe
-handling of the pseudonymous session identifier.
+allowlist input validation, role-based access (participant and administrator),
+hardened HTTP headers, and safe handling of the pseudonymous session identifier.
 """
 
 import hmac
 import re
 import secrets
+import time
 from functools import wraps
 
-from flask import abort, g, redirect, request, session, url_for
+from flask import abort, current_app, g, redirect, request, session, url_for
 
 from src import repository
 
 ALLOWED_ANSWERS = frozenset({"phishing", "legitimate"})
 SCENARIO_ID = re.compile(r"[ABP][0-9]{2}")
 UUID4 = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}")
+ADMIN_USERNAME = re.compile(r"[a-z0-9][a-z0-9._-]{2,31}")
+ADMIN_SESSION_KEYS = ("admin_user", "admin_seen", "admin_stamp")
 STATE_CHANGING_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
 CSRF_MESSAGE = (
     "Your security token is missing or has expired. "
@@ -83,6 +86,60 @@ def require_consent(view):
             session.pop("participant_id", None)
             return redirect(url_for("consent.consent_form"))
         g.participant = participant
+        return view(*args, **kwargs)
+    return wrapped
+
+
+def is_valid_admin_username(value):
+    """True for 3 to 32 lowercase letters, digits, dots, underscores, or hyphens."""
+    return isinstance(value, str) and ADMIN_USERNAME.fullmatch(value) is not None
+
+
+def start_admin_session(account):
+    """Open an administrator session in a fresh cookie (prevents session fixation)."""
+    session.clear()
+    session.permanent = True
+    session["admin_user"] = account["username"]
+    session["admin_seen"] = int(time.time())
+    session["admin_stamp"] = account["created_at"]
+    get_csrf_token()
+
+
+def end_admin_session():
+    for key in ADMIN_SESSION_KEYS:
+        session.pop(key, None)
+
+
+def current_admin():
+    """The signed-in administrator's account, or None.
+
+    The session is valid only while the account still exists, its password has
+    not changed since sign-in, and the last request was within the idle limit
+    (15 minutes by default, NFR-10).
+    """
+    username = session.get("admin_user")
+    seen = session.get("admin_seen")
+    if not isinstance(username, str) or not isinstance(seen, int):
+        return None
+    if time.time() - seen > current_app.config["ADMIN_IDLE_TIMEOUT"]:
+        return None
+    account = repository.get_admin(username)
+    if account is None or account["created_at"] != session.get("admin_stamp"):
+        return None
+    return account
+
+
+def require_admin(view):
+    """Decorator: the wrapped route needs the administrator role (FR-11, NFR-10)."""
+    @wraps(view)
+    def wrapped(*args, **kwargs):
+        account = current_admin()
+        if account is None:
+            had_session = "admin_user" in session
+            end_admin_session()
+            return redirect(url_for("admin.login_form", expired=1 if had_session else None))
+        session["admin_seen"] = int(time.time())  # sliding idle window
+        g.admin = account
         return view(*args, **kwargs)
     return wrapped
 
