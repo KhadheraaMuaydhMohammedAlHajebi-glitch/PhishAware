@@ -44,6 +44,11 @@ class SusScoreTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             scoring.sus_score([6] + [3] * 9)
 
+    def test_rejects_boolean_ratings(self):
+        # Boundary of the type check: bool is a subclass of int, and True == 1.
+        with self.assertRaises(ValueError):
+            scoring.sus_score([True] * 10)
+
 
 class CounterbalancingTests(unittest.TestCase):
     def test_odd_sessions_start_with_form_a(self):
