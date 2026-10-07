@@ -2,6 +2,11 @@
 
 All notable changes to PhishAware are recorded here (Keep a Changelog format).
 
+## [Unreleased]
+
+### Changed
+- README: the release steps now describe how each version tag is created, by publishing a GitHub Release from the release branch.
+
 ## [0.5.1] - 2026-10-07 (Unit 5: testing completion)
 
 ### Added

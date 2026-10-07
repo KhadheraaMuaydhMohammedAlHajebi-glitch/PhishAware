@@ -72,7 +72,7 @@ PhishAware/
 
 The repository follows a Git Flow-style model:
 
-- `main` holds only released versions. Every release is an annotated tag that follows Semantic Versioning, for example `v0.4.0`.
+- `main` holds only released versions. Every release has a tag that follows Semantic Versioning, for example `v0.4.0`.
 - `develop` is the integration branch for finished work that has passed the tests.
 - `feature/<module>-<topic>` branches are short-lived and merge into `develop` with `--no-ff`, so each feature keeps a visible merge commit.
 - `fix/<topic>` branches correct defects, and `release/<version>` branches update the version, changelog, and release notes before a release.
@@ -83,12 +83,13 @@ Cutting a release:
 ```bash
 git checkout -b release/0.4.0 develop        # update the version, changelog, and docs/releases
 git checkout main && git merge --no-ff release/0.4.0
-git tag -a v0.4.0 -m "v0.4.0: Unit 4 milestone - initial implementation"
 git checkout develop && git merge --no-ff release/0.4.0
-git push origin main develop --tags
+git push origin main develop release/0.4.0
 ```
 
-Release notes for each tag are kept in `docs/releases/` and published as GitHub Releases.
+The release is then published on GitHub (Releases, "Draft a new release") with the tag `v0.4.0`, the release
+branch as its target, and a summary that points to the full notes in `docs/releases/`. Publishing creates the tag
+on the final commit of the release branch, which is the commit that was merged into `main`.
 
 ## Security, privacy, and ethics
 
