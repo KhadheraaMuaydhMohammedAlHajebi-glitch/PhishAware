@@ -191,6 +191,38 @@ progress::-moz-progress-bar { background: var(--teal); }
 .ok { color: var(--teal-dark); font-weight: 700; }
 .miss { color: var(--hook); font-weight: 700; }
 
+/* Results (FR-08). Bar lengths are SVG width attributes, never inline styles. */
+.stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; margin-bottom: 20px; }
+.stat { background: var(--paper); border: 1px solid var(--line); border-radius: 12px; padding: 18px 22px; }
+.stat__label { margin: 0 0 4px; font-size: 0.9rem; font-weight: 600; color: var(--muted); }
+.stat__value { margin: 0; font-family: var(--serif); font-size: 2.2rem; font-weight: 700; line-height: 1.15; color: var(--ink); }
+.stat__value--up { color: var(--teal-dark); }
+.stat__value--down { color: var(--hook-dark); }
+.chart, .next-steps { margin-bottom: 20px; }
+.chart h2, .next-steps h2 { font-size: 1.3rem; margin: 0 0 6px; }
+.chart__legend { margin: 0 0 16px; font-size: 0.93rem; color: var(--muted); }
+.key { display: inline-block; width: 12px; height: 12px; margin: 0 6px 0 10px; border-radius: 3px; vertical-align: -1px; }
+.key:first-child { margin-left: 0; }
+.key--pre { background: #b3bfd0; }
+.key--post { background: var(--teal); }
+.cue-chart { display: grid; gap: 14px; }
+.cue-row { display: grid; grid-template-columns: 230px minmax(0, 1fr); gap: 18px; align-items: center; }
+.cue-row__label { margin: 0; font-weight: 700; color: var(--ink); }
+.cue-row__bars { display: block; width: 100%; max-width: 460px; height: auto; }
+.bar--pre { fill: #b3bfd0; }
+.bar--post { fill: var(--teal); }
+.bar__value { font-family: var(--sans); font-size: 13px; fill: var(--muted); }
+.next-steps .cue-list { margin: 10px 0 4px; }
+
+/* Usability survey (FR-09) */
+.sus__item { margin: 0 0 20px; padding: 0; border: 0; min-width: 0; }
+.sus__item legend { display: flex; align-items: baseline; gap: 10px; width: 100%; margin-bottom: 10px; padding: 0 0 8px; border-bottom: 1px solid var(--line); font-weight: 700; color: var(--ink); }
+.sus__num { flex: none; width: 26px; height: 26px; display: inline-grid; place-items: center; border-radius: 50%; background: var(--mist); font-size: 0.85rem; }
+.sus__scale { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; }
+.sus__choice { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 10px 6px; border: 1px solid var(--line); border-radius: 8px; font-size: 0.9rem; text-align: center; cursor: pointer; }
+.sus__choice:has(input:checked) { background: var(--teal-tint); border-color: var(--teal); }
+.sus__choice input { width: 18px; height: 18px; margin: 0; accent-color: var(--teal); }
+
 /* Lessons */
 .lessons { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
 .lesson { display: flex; flex-direction: column; padding: 20px; background: var(--paper); border: 1px solid var(--line); border-radius: 12px; }
@@ -205,7 +237,10 @@ progress::-moz-progress-bar { background: var(--teal); }
 @media (max-width: 900px) {
   .workspace { grid-template-columns: 1fr; }
   .workspace__side { position: static; }
-  .lessons, .consent-grid { grid-template-columns: 1fr; }
+  .lessons, .consent-grid, .stats { grid-template-columns: 1fr; }
+  .cue-row { grid-template-columns: 1fr; gap: 4px; }
+  .sus__scale { grid-template-columns: 1fr; }
+  .sus__choice { flex-direction: row; justify-content: flex-start; padding: 8px 12px; }
   .step { grid-template-columns: 40px minmax(0, 1fr); }
   .step > .badge, .step > .btn { grid-column: 2; justify-self: start; }
   .sheet { padding: 22px 18px; }

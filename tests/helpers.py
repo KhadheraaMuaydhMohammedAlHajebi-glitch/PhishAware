@@ -31,7 +31,7 @@ class AppTestCase(unittest.TestCase):
             return get_db().execute(sql, params).fetchall()
 
     def count(self, table):
-        allowed = {"participant", "attempt", "response", "scenario"}
+        allowed = {"participant", "attempt", "response", "scenario", "sus_response"}
         if table not in allowed:
             raise ValueError(table)
         return self.query(f"SELECT COUNT(*) AS n FROM {table}")[0]["n"]  # nosec B608
@@ -64,15 +64,40 @@ class AppTestCase(unittest.TestCase):
     def label_of(self, scenario_id):
         return self.query("SELECT label FROM scenario WHERE id = ?", (scenario_id,))[0]["label"]
 
-    def answer_current(self, url, correct=True):
+    def answer_current(self, url, correct=True, client=None):
         """Answer the item currently shown at url; returns the POST response."""
-        scenario_id = self.scenario_id_from(self.client.get(url).get_data(as_text=True))
+        client = client or self.client
+        scenario_id = self.scenario_id_from(client.get(url).get_data(as_text=True))
         label = self.label_of(scenario_id)
         answer = label if correct else ("legitimate" if label == "phishing" else "phishing")
-        return self.client.post(
-            url, data={"scenario_id": scenario_id, "answer": answer, "csrf_token": self.token()}
+        return client.post(
+            url,
+            data={"scenario_id": scenario_id, "answer": answer, "csrf_token": self.token(client)},
         )
 
-    def answer_pretest(self, correct=True):
-        for _ in range(12):
-            self.answer_current("/assessment/pre", correct)
+    def answer_pattern(self, url, pattern, client=None):
+        """Answer one item per entry in pattern (True = correct, False = incorrect)."""
+        for correct in pattern:
+            self.answer_current(url, correct, client)
+
+    def answer_pretest(self, correct=True, client=None):
+        self.answer_pattern("/assessment/pre", [correct] * 12, client)
+
+    def finish_practice(self, client=None):
+        self.answer_pattern("/practice", [True] * 6, client)
+
+    def answer_posttest(self, correct=True, client=None):
+        self.answer_pattern("/assessment/post", [correct] * 12, client)
+
+    def survey_data(self, ratings, client=None):
+        """Form data for the SUS survey: q1..q10 plus the CSRF token."""
+        data = {f"q{number}": str(rating) for number, rating in enumerate(ratings, start=1)}
+        data["csrf_token"] = self.token(client)
+        return data
+
+    def reach_posttest(self, client=None):
+        """Consent, finish the pre-test and the practice phase; returns the random ID."""
+        participant_id = self.consent(client)
+        self.answer_pretest(client=client)
+        self.finish_practice(client)
+        return participant_id

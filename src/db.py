@@ -10,6 +10,7 @@ from pathlib import Path
 
 import click
 from flask import current_app, g
+from flask.cli import with_appcontext
 
 SCHEMA_FILE = Path(__file__).with_name("schema.sql")
 
@@ -81,6 +82,7 @@ def database_ready():
 
 
 @click.command("init-db")
+@with_appcontext
 def init_db_command():
     """Create the database schema and load the scenario bank."""
     count = init_db()
@@ -90,6 +92,7 @@ def init_db_command():
 
 @click.command("reset-db")
 @click.confirmation_option(prompt="This deletes ALL participant data. Continue?")
+@with_appcontext
 def reset_db_command():
     """Development only: delete the database file and rebuild it."""
     close_db()
@@ -99,7 +102,12 @@ def reset_db_command():
 
 
 def init_app(app):
-    """Register teardown and CLI commands with the application."""
+    """Register teardown and CLI commands with the application.
+
+    Each command carries @with_appcontext. The flask launcher pushes an
+    application context by itself, but Flask's test runner does not, so a
+    command without the decorator works in a terminal and fails under test.
+    """
     app.teardown_appcontext(close_db)
     app.cli.add_command(init_db_command)
     app.cli.add_command(reset_db_command)

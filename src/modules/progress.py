@@ -31,15 +31,23 @@ def build_progress(participant):
     order = participant["form_order"]
     pre_total = len(repository.scenarios_for_pool(order[0]))
     practice_total = len(repository.scenarios_for_pool("P"))
+    post_total = len(repository.scenarios_for_pool(order[1]))
     return {
         "short_id": participant_id[-6:],
         "form_order": order,
         "pre": phase_status(participant_id, "pre", pre_total),
         "practice": phase_status(participant_id, "practice", practice_total),
+        "post": phase_status(participant_id, "post", post_total),
+        "survey_done": repository.get_sus(participant_id) is not None,
     }
+
+
+def phase_done(participant, phase):
+    """True once the participant has finished the given phase."""
+    attempt = repository.get_attempt(participant["id"], phase)
+    return attempt is not None and attempt["completed_at"] is not None
 
 
 def pretest_done(participant):
     """True once the participant has finished the pre-assessment."""
-    attempt = repository.get_attempt(participant["id"], "pre")
-    return attempt is not None and attempt["completed_at"] is not None
+    return phase_done(participant, "pre")
