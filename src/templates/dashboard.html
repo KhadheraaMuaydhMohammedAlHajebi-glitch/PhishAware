@@ -3,6 +3,7 @@
 {% block content %}
 {% set pre = progress.pre %}
 {% set practice = progress.practice %}
+{% set post = progress.post %}
 <section class="page-head">
   <h1>Your learning path</h1>
   <p class="lead">You take Form {{ progress.form_order[0] }} first and Form {{ progress.form_order[1] }} at the end. Work through the steps in order; you can withdraw at any time from the top bar.</p>
@@ -56,13 +57,20 @@
     <span class="badge badge--locked">After the pre-assessment</span>
     {% endif %}
   </li>
-  <li class="step step--planned">
+  <li class="step {% if post.done %}step--done{% elif practice.done %}step--current{% else %}step--locked{% endif %}">
     <span class="step__num" aria-hidden="true">5</span>
     <div class="step__body">
       <h2>Post-assessment</h2>
       <p>Twelve new items from Form {{ progress.form_order[1] }} to measure your progress.</p>
+      {% if post.started and not post.done %}<progress value="{{ post.answered }}" max="{{ post.total }}">{{ post.answered }} of {{ post.total }} answered</progress>{% endif %}
     </div>
-    <span class="badge badge--planned">Arrives in release 0.5</span>
+    {% if post.done %}
+    <span class="badge badge--done">Final {{ '%.1f'|format(post.score) }}%</span>
+    {% elif practice.done %}
+    <a class="btn btn--primary btn--sm" href="{{ url_for('assessment.post_item') }}">{{ 'Resume' if post.started else 'Start' }}</a>
+    {% else %}
+    <span class="badge badge--locked">After the practice scenarios</span>
+    {% endif %}
   </li>
   <li class="step step--planned">
     <span class="step__num" aria-hidden="true">6</span>

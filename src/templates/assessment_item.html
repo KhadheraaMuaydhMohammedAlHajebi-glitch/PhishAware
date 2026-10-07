@@ -1,17 +1,17 @@
 {% extends "base.html" %}
-{% block title %}Pre-assessment item {{ position }} of {{ total }}{% endblock %}
+{% block title %}{{ label }} item {{ position }} of {{ total }}{% endblock %}
 {% block content %}
 <div class="workspace">
   <section class="workspace__main">
-    <h1 class="visually-hidden">Pre-assessment item {{ position }} of {{ total }}</h1>
+    <h1 class="visually-hidden">{{ label }} item {{ position }} of {{ total }}</h1>
     {% include "_scenario.html" %}
   </section>
   <aside class="workspace__side">
     <div class="panel">
-      <p class="kicker">Pre-assessment, Form {{ form }}</p>
+      <p class="kicker">{{ label }}, Form {{ form }}</p>
       <p class="counter"><strong>{{ position }}</strong> of {{ total }}</p>
       <progress value="{{ position - 1 }}" max="{{ total }}">{{ position - 1 }} of {{ total }} answered</progress>
-      <p class="muted">Answer as you would in your own inbox. You will see explanations after the lessons.</p>
+      <p class="muted">{{ hint }}</p>
       {% include "_decision.html" %}
     </div>
   </aside>
