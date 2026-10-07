@@ -151,6 +151,9 @@ def apply_security_headers(response):
     response.headers["X-Frame-Options"] = "DENY"
     response.headers["Referrer-Policy"] = "no-referrer"
     response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
+    if current_app.config["SESSION_COOKIE_SECURE"]:
+        # Served over HTTPS: tell browsers never to fall back to plain HTTP (NFR-08).
+        response.headers["Strict-Transport-Security"] = "max-age=31536000"
     if response.mimetype == "text/html":
         response.headers["Cache-Control"] = "no-store"
     return response

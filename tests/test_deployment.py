@@ -1,0 +1,165 @@
+"""Tests for the deployment-facing behaviour: start-up checks, health, and storage mode.
+
+These settings decide whether a deployment is safe, so each rule is tested at
+its boundary: a 31- and a 32-character secret key, each accepted and each
+rejected environment name, and a database that does and does not answer.
+"""
+
+import os
+import sqlite3
+import tempfile
+import unittest
+from unittest import mock
+
+from cryptography.fernet import Fernet
+
+from src import __version__, repository
+from src.app import create_app
+from src.config import env_flag
+from src.db import get_db
+from tests.helpers import AppTestCase
+
+SUS = [4, 2, 5, 1, 4, 2, 5, 2, 4, 1]
+
+
+class StartupCheckTests(unittest.TestCase):
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+
+    def start(self, **settings):
+        config = {"TESTING": True, "DATABASE": os.path.join(self._tmp.name, "start.db")}
+        config.update(settings)
+        return create_app(config)
+
+    def test_production_refuses_to_start_without_a_secret_key(self):
+        with self.assertRaises(RuntimeError) as raised:
+            self.start(APP_ENV="production", SECRET_KEY=None)
+        self.assertIn("PHISHAWARE_SECRET_KEY must be set to at least 32", str(raised.exception))
+        self.assertFalse(os.path.exists(os.path.join(self._tmp.name, "start.db")))
+
+    def test_production_secret_key_boundary_is_thirty_two_characters(self):
+        with self.assertRaises(RuntimeError):
+            self.start(APP_ENV="production", SECRET_KEY="k" * 31)
+        app = self.start(APP_ENV="production", SECRET_KEY="k" * 32)
+        self.assertEqual(app.config["SECRET_KEY"], "k" * 32)
+
+    def test_production_refuses_debug_mode(self):
+        with self.assertRaises(RuntimeError) as raised:
+            self.start(APP_ENV="production", SECRET_KEY="k" * 32, DEBUG=True)
+        self.assertIn("debug mode must be off", str(raised.exception))
+
+    def test_misspelled_settings_are_reported_together(self):
+        with self.assertRaises(RuntimeError) as raised:
+            self.start(APP_ENV="staging", SQLITE_JOURNAL_MODE="FAST")
+        message = str(raised.exception)
+        self.assertIn("PHISHAWARE_ENV must be one of development, production", message)
+        self.assertIn("PHISHAWARE_SQLITE_JOURNAL must be one of WAL, DELETE", message)
+
+    def test_development_generates_a_different_key_on_every_start(self):
+        first = self.start(SECRET_KEY=None).config["SECRET_KEY"]
+        second = self.start(SECRET_KEY=None).config["SECRET_KEY"]
+        self.assertEqual(len(first), 64)
+        self.assertNotEqual(first, second)
+
+    def test_env_flag_reads_one_as_on_and_anything_else_as_off(self):
+        with mock.patch.dict(os.environ, {"FLAG_ON": "1", "FLAG_OFF": "0", "FLAG_ODD": "yes"}):
+            self.assertTrue(env_flag("FLAG_ON", False))
+            self.assertFalse(env_flag("FLAG_OFF", True))
+            self.assertFalse(env_flag("FLAG_ODD", True))
+            self.assertTrue(env_flag("FLAG_UNSET", True))
+            self.assertFalse(env_flag("FLAG_UNSET", False))
+
+
+class HealthTests(AppTestCase):
+    def test_healthy_instance_reports_its_version_and_scenario_count(self):
+        response = self.client.get("/healthz")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.get_json(), {"status": "ok", "version": __version__, "scenarios": 30})
+        self.assertEqual(response.headers["Cache-Control"], "no-store")
+        self.assertNotIn("Set-Cookie", response.headers)   # the probe opens no session
+
+    def test_unreachable_database_is_reported_as_unavailable(self):
+        failure = sqlite3.OperationalError("unable to open database file")
+        with mock.patch.object(repository, "scenario_count", side_effect=failure):
+            response = self.client.get("/healthz")
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(response.get_json(), {"status": "unavailable"})
+
+    def test_probe_reveals_no_participant_data(self):
+        participant_id = self.consent()
+        body = self.app.test_client().get("/healthz").get_data(as_text=True)
+        self.assertNotIn(participant_id, body)
+        self.assertNotIn("participant", body)
+
+
+class TransportSecurityTests(AppTestCase):
+    def test_https_settings_add_hsts_and_a_secure_cookie(self):
+        self.app.config["SESSION_COOKIE_SECURE"] = True
+        response = self.client.get("/consent")
+        self.assertEqual(response.headers["Strict-Transport-Security"], "max-age=31536000")
+        self.assertIn("Secure", response.headers["Set-Cookie"])
+
+    def test_plain_http_development_sends_neither(self):
+        response = self.client.get("/consent")
+        self.assertNotIn("Strict-Transport-Security", response.headers)
+        self.assertNotIn("Secure", response.headers["Set-Cookie"])
+
+
+class JournalModeTests(AppTestCase):
+    def journal_mode(self, app=None):
+        with (app or self.app).app_context():
+            return get_db().execute("PRAGMA journal_mode").fetchone()[0]
+
+    def restart(self, **settings):
+        config = {"TESTING": True, "DATABASE": self.app.config["DATABASE"], "SECRET_KEY": "k"}
+        config.update(settings)
+        return create_app(config)
+
+    def test_write_ahead_logging_is_the_default(self):
+        self.assertEqual(self.journal_mode(), "wal")
+
+    def test_rollback_journal_can_be_selected_for_network_file_systems(self):
+        self.consent()
+        app = self.restart(SQLITE_JOURNAL_MODE="DELETE")
+        self.assertEqual(self.journal_mode(app), "delete")
+        self.assertEqual(self.journal_mode(self.restart()), "wal")   # and switched back
+        self.assertEqual(self.count("participant"), 1)               # without losing data
+
+    def test_reader_is_not_blocked_while_another_connection_is_writing(self):
+        participant = self.app.test_client()
+        self.consent(participant)
+        writer = sqlite3.connect(self.app.config["DATABASE"], timeout=0.2)
+        writer.execute("BEGIN EXCLUSIVE")   # hold the write lock, as a slow request would
+        writer.execute("UPDATE participant SET status = 'completed'")
+        try:
+            self.assertEqual(self.client.get("/healthz").status_code, 200)
+            page = participant.get("/dashboard")           # reads the participant's progress
+            self.assertEqual(page.status_code, 200)
+        finally:
+            writer.rollback()
+            writer.close()
+
+    def test_reset_keeps_the_configured_mode_and_leaves_no_stale_log(self):
+        self.consent()
+        self.app.test_cli_runner().invoke(args=["reset-db", "--yes"])
+        self.assertEqual(self.journal_mode(), "wal")
+        self.assertEqual(self.count("participant"), 0)
+        self.assertEqual(self.count("scenario"), 30)
+
+    def test_backup_and_restore_work_in_both_modes(self):
+        for mode in ("WAL", "DELETE"):
+            with self.subTest(mode=mode):
+                app = self.restart(SQLITE_JOURNAL_MODE=mode)
+                app.config["BACKUP_KEY"] = Fernet.generate_key().decode()
+                app.config["BACKUP_DIR"] = os.path.join(self._tmp.name, f"backups-{mode}")
+                runner = app.test_cli_runner()
+                self.assertEqual(runner.invoke(args=["backup-db"]).exit_code, 0)
+                snapshot = os.path.join(
+                    app.config["BACKUP_DIR"], os.listdir(app.config["BACKUP_DIR"])[0])
+                self.consent(app.test_client())               # a record made after the backup
+                result = runner.invoke(args=["restore-db", snapshot, "--yes"])
+                self.assertEqual(result.exit_code, 0, result.output)
+                self.assertIn("0 participant record(s)", result.output)
+                self.assertEqual(self.journal_mode(app), mode.lower())

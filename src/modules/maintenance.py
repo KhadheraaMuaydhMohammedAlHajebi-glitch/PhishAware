@@ -125,8 +125,12 @@ def restore_backup(path):
         # The header is checked first because deserialize() raises MemoryError,
         # not a database error, when it is given an empty byte string.
         if plaintext.startswith(SQLITE_HEADER):
+            # A snapshot of a database in write-ahead-log mode cannot be opened in
+            # memory. SQLite documents the remedy: set the two file-format bytes
+            # (offsets 18 and 19) to 1, which marks the image as rollback mode.
+            image = plaintext[:18] + b"\x01\x01" + plaintext[20:]
             try:
-                snapshot.deserialize(plaintext)
+                snapshot.deserialize(image)
                 healthy = snapshot.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
                 tables = {row[0] for row in snapshot.execute(
                     "SELECT name FROM sqlite_master WHERE type = 'table'")}
@@ -141,7 +145,8 @@ def restore_backup(path):
         snapshot.backup(live)
     finally:
         snapshot.close()
-    db.ensure_schema()   # a snapshot from an older release gains the newer tables
+    db.ensure_schema()        # a snapshot from an older release gains the newer tables
+    db.apply_journal_mode()   # the copy arrives in rollback mode; restore the configured mode
     return repository.participant_count()
 
 

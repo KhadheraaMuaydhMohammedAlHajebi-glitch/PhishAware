@@ -1,0 +1,46 @@
+# PhishAware pilot stack: the application behind an HTTPS reverse proxy.
+#
+#   cp .env.example .env          then set the two secrets in .env
+#   docker compose up -d --build  build the image and start both services
+#
+# docs/deployment.md has the full procedure, including backups and rollback.
+name: phishaware
+
+services:
+  app:
+    build: .
+    image: phishaware:${PHISHAWARE_VERSION:-0.6.0}
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      - phishaware-data:/data        # the database and its encrypted backups
+    expose:
+      - "8000"                       # reachable by the proxy only, not from the host
+    read_only: true                  # the code cannot be changed at run time
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+
+  proxy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on:
+      app:
+        condition: service_healthy   # no traffic until /healthz answers
+    ports:
+      - "${PHISHAWARE_HTTP_PORT:-80}:80"
+      - "${PHISHAWARE_HTTPS_PORT:-443}:443"
+    environment:
+      PHISHAWARE_DOMAIN: ${PHISHAWARE_DOMAIN:-localhost}
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data             # certificates
+      - caddy-config:/config
+
+volumes:
+  phishaware-data:
+  caddy-data:
+  caddy-config:
