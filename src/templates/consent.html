@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block title %}Informed consent{% endblock %}
+{% block content %}
+<section class="sheet sheet--narrow">
+  <p class="kicker">Step 1 of 6, consent form version {{ version }}</p>
+  <h1>Before you begin</h1>
+  <p class="lead">PhishAware is a short, voluntary activity that helps university students recognize phishing emails and websites. Read this page, then decide whether to take part.</p>
+  {% if error %}<div class="alert alert--error" role="alert">{{ error }}</div>{% endif %}
+  <div class="consent-grid">
+    <section class="consent-block">
+      <h2>What you will do</h2>
+      <p>About 25 to 30 minutes: a 12-item pre-assessment, six short lessons, practice scenarios with instant feedback, a post-assessment, and a brief usability survey.</p>
+    </section>
+    <section class="consent-block">
+      <h2>What is stored</h2>
+      <p>A random ID, your answers, your scores, and your usability ratings. Nothing is stored until you agree below.</p>
+    </section>
+    <section class="consent-block">
+      <h2>What is never collected</h2>
+      <p>Your name, email address, student number, passwords, IP address, or demographic details.</p>
+    </section>
+    <section class="consent-block">
+      <h2>Your rights</h2>
+      <p>Taking part is voluntary and never graded. You can withdraw on any page, which permanently deletes every record linked to your random ID.</p>
+    </section>
+  </div>
+  <form method="post" action="{{ url_for('consent.give_consent') }}" class="consent-form" data-once>
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <label class="check"><input type="checkbox" name="adult" value="yes" required> <span>I am 18 years of age or older.</span></label>
+    <label class="check"><input type="checkbox" name="agree" value="yes" required> <span>I have read this information and agree to take part.</span></label>
+    <div class="actions">
+      <button type="submit" class="btn btn--primary">Agree and continue</button>
+      <a class="btn btn--ghost" href="{{ url_for('consent.declined') }}">I do not want to take part</a>
+    </div>
+  </form>
+</section>
+{% endblock %}

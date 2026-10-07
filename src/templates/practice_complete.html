@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block title %}Practice summary{% endblock %}
+{% block content %}
+<section class="sheet sheet--narrow">
+  <p class="kicker">Practice complete</p>
+  <h1>You classified {{ correct }} of {{ total }} correctly</h1>
+  <p class="lead">Each row shows the cue behind one practice scenario. Revisit the lessons for any cue you missed.</p>
+  <table class="summary-table">
+    <thead><tr><th scope="col">Scenario</th><th scope="col">Cue category</th><th scope="col">Result</th></tr></thead>
+    <tbody>
+    {% for row in results %}
+      <tr><td>{{ loop.index }}</td><td>{{ row.cue }}</td><td class="{{ 'ok' if row.correct else 'miss' }}">{{ 'Correct' if row.correct else 'Missed' }}</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  <div class="actions">
+    <a class="btn btn--primary" href="{{ url_for('consent.dashboard') }}">Back to dashboard</a>
+    <a class="btn btn--ghost" href="{{ url_for('learning.lessons') }}">Review the lessons</a>
+  </div>
+</section>
+{% endblock %}

@@ -1,0 +1,76 @@
+{% extends "base.html" %}
+{% block title %}Your learning path{% endblock %}
+{% block content %}
+{% set pre = progress.pre %}
+{% set practice = progress.practice %}
+<section class="page-head">
+  <h1>Your learning path</h1>
+  <p class="lead">You take Form {{ progress.form_order[0] }} first and Form {{ progress.form_order[1] }} at the end. Work through the steps in order; you can withdraw at any time from the top bar.</p>
+</section>
+<ol class="steps">
+  <li class="step step--done">
+    <span class="step__num" aria-hidden="true">1</span>
+    <div class="step__body">
+      <h2>Informed consent</h2>
+      <p>Recorded under a random ID. No personal details were collected.</p>
+    </div>
+    <span class="badge badge--done">Done</span>
+  </li>
+  <li class="step {{ 'step--done' if pre.done else 'step--current' }}">
+    <span class="step__num" aria-hidden="true">2</span>
+    <div class="step__body">
+      <h2>Pre-assessment</h2>
+      <p>Twelve fictional emails and web pages from Form {{ progress.form_order[0] }}. Feedback comes later.</p>
+      {% if pre.started and not pre.done %}<progress value="{{ pre.answered }}" max="{{ pre.total }}">{{ pre.answered }} of {{ pre.total }} answered</progress>{% endif %}
+    </div>
+    {% if pre.done %}
+    <span class="badge badge--done">Baseline {{ '%.1f'|format(pre.score) }}%</span>
+    {% else %}
+    <a class="btn btn--primary btn--sm" href="{{ url_for('assessment.pre_item') }}">{{ 'Resume' if pre.started else 'Start' }}</a>
+    {% endif %}
+  </li>
+  <li class="step {{ 'step--open' if pre.done else 'step--locked' }}">
+    <span class="step__num" aria-hidden="true">3</span>
+    <div class="step__body">
+      <h2>Learning modules</h2>
+      <p>Six one-minute lessons, one for each phishing cue.</p>
+    </div>
+    {% if pre.done %}
+    <a class="btn btn--secondary btn--sm" href="{{ url_for('learning.lessons') }}">Open lessons</a>
+    {% else %}
+    <span class="badge badge--locked">After the pre-assessment</span>
+    {% endif %}
+  </li>
+  <li class="step {% if practice.done %}step--done{% elif pre.done %}step--current{% else %}step--locked{% endif %}">
+    <span class="step__num" aria-hidden="true">4</span>
+    <div class="step__body">
+      <h2>Practice scenarios</h2>
+      <p>Classify six scenarios and see the cues behind each answer straight away.</p>
+      {% if practice.started and not practice.done %}<progress value="{{ practice.answered }}" max="{{ practice.total }}">{{ practice.answered }} of {{ practice.total }} answered</progress>{% endif %}
+    </div>
+    {% if practice.done %}
+    <span class="badge badge--done">{{ practice.correct }} of {{ practice.total }} correct</span>
+    {% elif pre.done %}
+    <a class="btn btn--primary btn--sm" href="{{ url_for('practice.practice_item') }}">{{ 'Resume' if practice.started else 'Start' }}</a>
+    {% else %}
+    <span class="badge badge--locked">After the pre-assessment</span>
+    {% endif %}
+  </li>
+  <li class="step step--planned">
+    <span class="step__num" aria-hidden="true">5</span>
+    <div class="step__body">
+      <h2>Post-assessment</h2>
+      <p>Twelve new items from Form {{ progress.form_order[1] }} to measure your progress.</p>
+    </div>
+    <span class="badge badge--planned">Arrives in release 0.5</span>
+  </li>
+  <li class="step step--planned">
+    <span class="step__num" aria-hidden="true">6</span>
+    <div class="step__body">
+      <h2>Results and usability survey</h2>
+      <p>Your before-and-after comparison, cue feedback, and a ten-question survey.</p>
+    </div>
+    <span class="badge badge--planned">Arrives in release 0.5</span>
+  </li>
+</ol>
+{% endblock %}

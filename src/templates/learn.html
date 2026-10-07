@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block title %}Learning modules{% endblock %}
+{% block content %}
+<section class="page-head">
+  <h1>Six cues that give phishing away</h1>
+  <p class="lead">Each lesson takes about a minute. The practice scenarios that follow give you instant feedback on these same cues.</p>
+</section>
+<ol class="lessons">
+  {% for lesson in lessons %}
+  <li class="lesson">
+    <span class="lesson__num" aria-hidden="true">{{ loop.index }}</span>
+    <h2>{{ lesson.title }}</h2>
+    <p>{{ lesson.summary }}</p>
+    <ul>{% for item in lesson.look_for %}<li>{{ item }}</li>{% endfor %}</ul>
+    <p class="lesson__example">{{ lesson.example }}</p>
+    <p class="lesson__safe">{{ lesson.safe_action }}</p>
+  </li>
+  {% endfor %}
+</ol>
+<div class="actions">
+  <a class="btn btn--primary" href="{{ url_for('practice.practice_item') }}">Continue to practice scenarios</a>
+  <a class="btn btn--ghost" href="{{ url_for('consent.dashboard') }}">Back to dashboard</a>
+</div>
+<p class="source-note">Cue categories adapted from NIST phishing guidance (NIST, 2021).</p>
+{% endblock %}

@@ -1,1 +1,1057 @@
-[]
+{
+  "version": "1.0",
+  "note": "All organizations, people, and domains are fictional. Only reserved .example and .test domains are used (RFC 2606).",
+  "scenarios": [
+    {
+      "id": "A01",
+      "pool": "A",
+      "position": 1,
+      "channel": "email",
+      "cue": "deceptive_links",
+      "difficulty": 3,
+      "label": "phishing",
+      "context": "The week after midterms, this email arrives in your student inbox.",
+      "email": {
+        "from_name": "NorthLearn Grades",
+        "from_address": "grades@learn.northbridge.example",
+        "reply_to": null,
+        "to": "you@student.northbridge.example",
+        "subject": "Your midterm grade has been updated",
+        "date": "Mon, 12 Oct 2026, 09:41",
+        "body": [
+          "Hello,",
+          "Your instructor has published an updated midterm grade for one of your courses. Please review it before the grade-appeal window closes on Friday.",
+          "View your grade here:"
+        ],
+        "link": {
+          "text": "https://learn.northbridge.example/grades",
+          "href": "http://northbridge.example.grade-portal.test/login"
+        },
+        "attachments": []
+      },
+      "feedback": {
+        "explanation": "This is phishing. The visible link text shows the real NorthLearn address, but the link really goes to grade-portal.test. The words northbridge.example are only a label placed in front of someone else's domain. Sender addresses can be forged, so the real link destination is the deciding cue.",
+        "cues": [
+          "The link text and the real destination do not match",
+          "Read the domain from right to left: it is grade-portal.test",
+          "Mild time pressure about an appeal deadline"
+        ],
+        "safe_action": "Do not click. Open NorthLearn from your bookmark or by typing the address yourself, then report the message to IT Services."
+      }
+    },
+    {
+      "id": "A02",
+      "pool": "A",
+      "position": 2,
+      "channel": "email",
+      "cue": "credential_requests",
+      "difficulty": 1,
+      "label": "legitimate",
+      "context": "The university's IT department sends this notice to all students.",
+      "email": {
+        "from_name": "Northbridge IT Services",
+        "from_address": "it-services@northbridge.example",
+        "reply_to": null,
+        "to": "you@student.northbridge.example",
+        "subject": "Planned maintenance this Saturday, 02:00 to 04:00",
+        "date": "Wed, 7 Oct 2026, 14:05",
+        "body": [
+          "Dear students and staff,",
+          "NorthLearn and the student portal will be unavailable this Saturday from 02:00 to 04:00 while we install security updates. No action is required from you.",
+          "Reminder: IT Services will never ask for your password by email, phone, or chat.",
+          "IT Services, Northbridge University"
+        ],
+        "link": null,
+        "attachments": []
+      },
+      "feedback": {
+        "explanation": "This is legitimate. It comes from the official northbridge.example domain, asks you to do nothing, contains no link or attachment, and even reminds you that IT never asks for passwords.",
+        "cues": [
+          "The sender's domain exactly matches the university domain",
+          "Information only: no request for passwords, payments, or personal details",
+          "No link or attachment to open"
+        ],
+        "safe_action": "No action is needed. If in doubt, check the IT status page by typing its address yourself."
+      }
+    },
+    {
+      "id": "A03",
+      "pool": "A",
+      "position": 3,
+      "channel": "email",
+      "cue": "urgency_threats",
+      "difficulty": 1,
+      "label": "phishing",
+      "context": "This email lands in your inbox late on a Friday afternoon.",
+      "email": {
+        "from_name": "Northbridge Finance Office",
+        "from_address": "finance-office@northbridge-payments.example",
+        "reply_to": null,
+        "to": "you@student.northbridge.example",
+        "subject": "FINAL NOTICE: Enrollment cancellation at 5:00 PM today",
+        "date": "Fri, 9 Oct 2026, 15:52",
+        "body": [
+          "Dear Student,",
+          "Our records show an unpaid balance on your account. If payment is not received by 5:00 PM TODAY, your enrollment will be cancelled and you will lose access to all courses.",
+          "Pay immediately to avoid cancellation:"
+        ],
+        "link": {
+          "text": "Pay balance now",
+          "href": "http://northbridge-payments.example/pay"
+        },
+        "attachments": []
+      },
+      "feedback": {
+        "explanation": "This is phishing. An extreme same-day deadline and the threat of losing your enrollment are designed to rush you. Real finance offices give notice well in advance and point you to the official portal. The sender's domain, northbridge-payments.example, is also not the university's domain.",
+        "cues": [
+          "Artificial same-day deadline",
+          "Threat of a severe consequence",
+          "Payment link on a look-alike domain"
+        ],
+        "safe_action": "Pause. Check your balance by signing in to the student portal you normally use, or contact the Finance Office using details from the official website."
+      }
+    },
+    {
+      "id": "A04",
+      "pool": "A",
+      "position": 4,
+      "channel": "web",
+      "cue": "lookalike_websites",
+      "difficulty": 3,
+      "label": "phishing",
+      "context": "You tapped a link in a text message saying your timetable had changed. This page opened.",
+      "web": {
+        "url": "https://northbridge-portal-login.test/signin",
+        "secure": true,
+        "org": "Northbridge University",
+        "heading": "Student Portal sign in",
+        "body": [
+          "Your timetable has changed. Sign in to see the update."
+        ],
+        "fields": [
+          "Student username",
+          "Password"
+        ],
+        "button": "Sign in"
+      },
+      "feedback": {
+        "explanation": "This is phishing. The page copies the real portal's look, and the padlock shows the connection is encrypted, but a padlock protects the connection, not the identity of the site. The domain is northbridge-portal-login.test, not northbridge.example.",
+        "cues": [
+          "The domain is not the university's domain",
+          "A padlock does not prove a site is genuine",
+          "You arrived through an unexpected text-message link"
+        ],
+        "safe_action": "Close the page. Open the portal yourself by typing portal.northbridge.example or using your bookmark."
+      }
+    },
+    {
+      "id": "A05",
+      "pool": "A",
+      "position": 5,
+      "channel": "email",
+      "cue": "sender_spoofing",
+      "difficulty": 1,
+      "label": "legitimate",
+      "context": "You reserved a library book last week.",
+      "email": {
+        "from_name": "Northbridge Library",
+        "from_address": "library@northbridge.example",
+        "reply_to": null,
+        "to": "you@student.northbridge.example",
+        "subject": "Your reserved book is ready for pickup",
+        "date": "Tue, 6 Oct 2026, 10:17",
+        "body": [
+          "Hello,",
+          "The book you reserved, Introduction to Network Security, is ready at the circulation desk on the ground floor. It will be held for seven days.",
+          "Please bring your student card when you collect it.",
+          "Northbridge Library"
+        ],
+        "link": null,
+        "attachments": []
+      },
+      "feedback": {
+        "explanation": "This is legitimate. The sender's domain is exactly northbridge.example, the message matches something you actually did, and it asks you to act in person rather than click a link or sign in.",
+        "cues": [
+          "Exact official domain after the @ sign",
+          "An expected message linked to your own action",
+          "No link, attachment, or request for information"
+        ],
+        "safe_action": "Collect the book as described."
+      }
+    },
+    {
+      "id": "A06",
+      "pool": "A",
+      "position": 6,
+      "channel": "email",
+      "cue": "unexpected_attachments",
+      "difficulty": 1,
+      "label": "legitimate",
+      "context": "In class yesterday, your instructor said she would email the lab worksheet.",
+      "email": {
+        "from_name": "Prof. Amina Rahman",
+        "from_address": "a.rahman@northbridge.example",
+        "reply_to": null,
+        "to": "you@student.northbridge.example",
+        "subject": "Week 5 lab worksheet (as discussed in class)",
+        "date": "Thu, 8 Oct 2026, 08:03",
+        "body": [
+          "Hi all,",
+          "As promised in yesterday's session, the Week 5 lab worksheet is attached. It is also posted on NorthLearn under Week 5.",
+          "Best regards,",
+          "Prof. Rahman"
+        ],
+        "link": null,
+        "attachments": [
+          "Lab5_Worksheet.pdf (212 KB)"
+        ]
+      },
+      "feedback": {
+        "explanation": "This is legitimate. The attachment was announced in class, it comes from your instructor's official address, it is an ordinary PDF, and the same file is available on NorthLearn.",
+        "cues": [
+          "The attachment was expected and announced in advance",
+          "Official instructor address",
+          "The same file is available through the LMS"
+        ],
+        "safe_action": "It is reasonable to open it, or download the same file from NorthLearn if you prefer."
+      }
+    },
+    {
+      "id": "A07",
+      "pool": "A",
+      "position": 7,
+      "channel": "email",
+      "cue": "sender_spoofing",
+      "difficulty": 2,
+      "label": "phishing",
+      "context": "This message arrives while you are studying for exams.",
+      "email": {
+        "from_name": "Northbridge IT Services",
+        "from_address": "it-services@northbrldge.example",
+        "reply_to": null,
+        "to": "you@student.northbridge.example",
+        "subject": "Mailbox storage limit reached",
+        "date": "Mon, 12 Oct 2026, 07:26",
+        "body": [
+          "Dear Student,",
+          "Your mailbox has reached 99% of its storage limit. New messages, including course announcements, may be rejected.",
+          "Use the link below to increase your storage free of charge:"
+        ],
+        "link": {
+          "text": "Increase my storage",
+          "href": "http://northbrldge.example/mailbox/upgrade"
+        },
+        "attachments": []
+      },
+      "feedback": {
+        "explanation": "This is phishing. Look closely at the sender: northbrldge.example replaces the letter i with a lowercase l. The display name looks official, but the domain belongs to someone else.",
+        "cues": [
+          "Look-alike sender domain: northbrldge instead of northbridge",
+          "The display name imitates IT Services",
+          "The link leads to the same fake domain"
+        ],
+        "safe_action": "Do not click. Report the message to IT Services and check your mailbox quota through the official portal."
+      }
+    },
+    {
+      "id": "A08",
+      "pool": "A",
+      "position": 8,
+      "channel": "email",
+      "cue": "urgency_threats",
+      "difficulty": 2,
+      "label": "legitimate",
+      "context": "It is the second week of the semester.",
+      "email": {
+        "from_name": "Northbridge Registrar",
+        "from_address": "registrar@northbridge.example",
+        "reply_to": null,
+        "to": "you@student.northbridge.example",
+        "subject": "Reminder: add/drop period ends Friday at 23:59",
+        "date": "Mon, 21 Sep 2026, 09:00",
+        "body": [
+          "Dear students,",
+          "This is a reminder that the course add/drop period ends this Friday at 23:59, as published in the academic calendar.",
+          "To make changes, sign in to the student portal as you normally do. No reply to this email is needed.",
+          "Office of the Registrar"
+        ],
+        "link": null,
+        "attachments": []
+      },
+      "feedback": {
+        "explanation": "This is legitimate. Genuine messages can contain deadlines. This one matches the published academic calendar, makes no threats, comes from the official domain, and tells you to use the portal you already know instead of a link.",
+        "cues": [
+          "The deadline matches the academic calendar",
+          "No threats or pressure tactics",
+          "It directs you to your usual portal and contains no link"
+        ],
+        "safe_action": "If you need changes, open the student portal yourself before Friday."
+      }
+    },
+    {
+      "id": "A09",
+      "pool": "A",
+      "position": 9,
+      "channel": "web",
+      "cue": "lookalike_websites",
+      "difficulty": 2,
+      "label": "legitimate",
+      "context": "You opened the student portal from your browser bookmark to check your timetable.",
+      "web": {
+        "url": "https://portal.northbridge.example/login",
+        "secure": true,
+        "org": "Northbridge University",
+        "heading": "Student Portal sign in",
+        "body": [
+          "Sign in to see your timetable, grades, and account details."
+        ],
+        "fields": [
+          "Student username",
+          "Password"
+        ],
+        "button": "Sign in"
+      },
+      "feedback": {
+        "explanation": "This is legitimate. The registered domain is northbridge.example (portal is simply a subdomain of the official university domain), and you reached the page yourself from a bookmark rather than through a message.",
+        "cues": [
+          "The registered domain is exactly northbridge.example",
+          "You navigated there directly from a bookmark",
+          "Nothing unusual is requested beyond a normal sign-in"
+        ],
+        "safe_action": "It is safe to sign in. Turn on multi-factor authentication if you have not already."
+      }
+    },
+    {
+      "id": "A10",
+      "pool": "A",
+      "position": 10,
+      "channel": "email",
+      "cue": "credential_requests",
+      "difficulty": 2,
+      "label": "phishing",
+      "context": "You applied for a travel scholarship last month.",
+      "email": {
+        "from_name": "Northbridge Scholarships",
+        "from_address": "scholarships@northbridge.example",
+        "reply_to": "nb-scholarship-desk@freemail.example",
+        "to": "you@student.northbridge.example",
+        "subject": "Scholarship payment: verification required",
+        "date": "Tue, 13 Oct 2026, 11:48",
+        "body": [
+          "Congratulations! Your travel scholarship has been approved.",
+          "To release the payment, reply to this email with your student portal username and password so that we can verify your enrollment.",
+          "Scholarships Office"
+        ],
+        "link": null,
+        "attachments": []
+      },
+      "feedback": {
+        "explanation": "This is phishing. No genuine office will ever ask for your password. Notice also that replies would go to a free-mail address (freemail.example), not the university, which is a strong sign the sender address was forged.",
+        "cues": [
+          "A direct request for your username and password",
+          "The Reply-To address points to an outside free-mail domain",
+          "It exploits a believable context: your real application"
+        ],
+        "safe_action": "Never share passwords. Contact the Scholarships Office through the official website and report the email."
+      }
+    },
+    {
+      "id": "A11",
+      "pool": "A",
+      "position": 11,
+      "channel": "email",
+      "cue": "deceptive_links",
+      "difficulty": 2,
+      "label": "legitimate",
+      "context": "Your project group agreed to share drafts through CloudLocker.",
+      "email": {
+        "from_name": "CloudLocker",
+        "from_address": "no-reply@cloudlocker.example",
+        "reply_to": null,
+        "to": "you@student.northbridge.example",
+        "subject": "Dana Lee shared a folder with you: Group Project Draft",
+        "date": "Wed, 14 Oct 2026, 16:22",
+        "body": [
+          "Dana Lee (dana.lee@student.northbridge.example) shared a folder with you.",
+          "Group Project Draft, 3 files"
+        ],
+        "link": {
+          "text": "Open in CloudLocker",
+          "href": "https://cloudlocker.example/s/g7k2p9"
+        },
+        "attachments": []
+      },
+      "feedback": {
+        "explanation": "This is legitimate. The link's real destination is on cloudlocker.example, the same domain as the sender, and the share matches what your group agreed. Nothing in the email asks you to re-enter a password.",
+        "cues": [
+          "The link destination matches the service's real domain",
+          "An expected share from a known group member",
+          "No request for credentials in the message"
+        ],
+        "safe_action": "Open it. If a sign-in page appears, first confirm that the address bar shows cloudlocker.example."
+      }
+    },
+    {
+      "id": "A12",
+      "pool": "A",
+      "position": 12,
+      "channel": "email",
+      "cue": "unexpected_attachments",
+      "difficulty": 2,
+      "label": "phishing",
+      "context": "You have not ordered anything online recently.",
+      "email": {
+        "from_name": "SwiftParcel Delivery",
+        "from_address": "tracking@swiftparcel-notice.example",
+        "reply_to": null,
+        "to": "you@student.northbridge.example",
+        "subject": "Delivery failed: print the attached label",
+        "date": "Thu, 15 Oct 2026, 13:10",
+        "body": [
+          "We were unable to deliver your parcel today.",
+          "Open the attached shipping label and follow the instructions to reschedule delivery within 48 hours, or the parcel will be returned to the sender."
+        ],
+        "link": null,
+        "attachments": [
+          "Shipping_Label_4471.html (38 KB)"
+        ]
+      },
+      "feedback": {
+        "explanation": "This is phishing. You were not expecting a parcel, the sender's domain is not SwiftParcel's official domain, and the attachment is an .html file, a format often used to open fake sign-in pages or run scripts.",
+        "cues": [
+          "An unexpected delivery notice",
+          "A risky attachment type (.html)",
+          "A look-alike courier domain and a 48-hour deadline"
+        ],
+        "safe_action": "Do not open the attachment. Track parcels only through the courier's official website or app."
+      }
+    },
+    {
+      "id": "B01",
+      "pool": "B",
+      "position": 1,
+      "channel": "email",
+      "cue": "deceptive_links",
+      "difficulty": 3,
+      "label": "phishing",
+      "context": "A classmate mentioned that a grades summary was being shared around.",
+      "email": {
+        "from_name": "CloudLocker",
+        "from_address": "no-reply@cloudlocker.example",
+        "reply_to": null,
+        "to": "you@student.northbridge.example",
+        "subject": "A file was shared with you: Final_Grades_Summary.xlsx",
+        "date": "Mon, 12 Oct 2026, 18:03",
+        "body": [
+          "The Academic Office shared a document with you.",
+          "Final_Grades_Summary.xlsx"
+        ],
+        "link": {
+          "text": "Open document",
+          "href": "https://cloudlocker.example-files.test/view?id=88213"
+        },
+        "attachments": []
+      },
+      "feedback": {
+        "explanation": "This is phishing. The sender looks like CloudLocker, but the real destination is example-files.test; cloudlocker appears only as a label in front of another domain. Read an address from right to left, starting just before the first single slash.",
+        "cues": [
+          "The real destination differs from the brand's domain",
+          "Tempting content (a grades summary) from a vague sender",
+          "Sender addresses can be forged"
+        ],
+        "safe_action": "Do not click. Ask the Academic Office through official channels whether they shared anything."
+      }
+    },
+    {
+      "id": "B02",
+      "pool": "B",
+      "position": 2,
+      "channel": "email",
+      "cue": "credential_requests",
+      "difficulty": 1,
+      "label": "legitimate",
+      "context": "You use PayWave to pay at the campus cafe.",
+      "email": {
+        "from_name": "PayWave",
+        "from_address": "no-reply@paywave.example",
+        "reply_to": null,
+        "to": "you@student.northbridge.example",
+        "subject": "Your monthly statement is ready",
+        "date": "Thu, 1 Oct 2026, 06:30",
+        "body": [
+          "Your PayWave statement for September is ready.",
+          "To view it, open the PayWave app or sign in on the website you normally use.",
+          "We will never ask for your password or verification codes by email."
+        ],
+        "link": null,
+        "attachments": []
+      },
+      "feedback": {
+        "explanation": "This is legitimate. It informs you, contains no link or attachment, and directs you to the app you already use. It also states that PayWave never asks for passwords or codes by email.",
+        "cues": [
+          "Official PayWave domain",
+          "No request for passwords or codes",
+          "No link: you navigate yourself"
+        ],
+        "safe_action": "View the statement in the app if you wish."
+      }
+    },
+    {
+      "id": "B03",
+      "pool": "B",
+      "position": 3,
+      "channel": "email",
+      "cue": "urgency_threats",
+      "difficulty": 1,
+      "label": "phishing",
+      "context": "You applied for on-campus housing.",
+      "email": {
+        "from_name": "Northbridge Housing",
+        "from_address": "housing@northbridge-residence.example",
+        "reply_to": null,
+        "to": "you@student.northbridge.example",
+        "subject": "URGENT: Your room will be released in 2 hours",
+        "date": "Tue, 13 Oct 2026, 12:14",
+        "body": [
+          "Your room assignment will be released to the waiting list in 2 HOURS unless you confirm it with a deposit now.",
+          "Act immediately:"
+        ],
+        "link": {
+          "text": "Confirm my room and pay the deposit",
+          "href": "http://northbridge-residence.example/deposit"
+        },
+        "attachments": []
+      },
+      "feedback": {
+        "explanation": "This is phishing. A two-hour deadline and the threat of losing your room are designed to rush your judgment. The domain northbridge-residence.example is not the university domain.",
+        "cues": [
+          "Extreme time pressure",
+          "Threat of losing something important",
+          "Payment link on an outside domain"
+        ],
+        "safe_action": "Check your housing status through the student portal, or phone the Housing Office using official contact details."
+      }
+    },
+    {
+      "id": "B04",
+      "pool": "B",
+      "position": 4,
+      "channel": "web",
+      "cue": "lookalike_websites",
+      "difficulty": 3,
+      "label": "phishing",
+      "context": "A pop-up said your NorthLearn session had expired, and this page opened.",
+      "web": {
+        "url": "https://learn-northbridge.example/login",
+        "secure": true,
+        "org": "Northbridge University",
+        "heading": "NorthLearn sign in",
+        "body": [
+          "Your session has expired. Sign in again to continue."
+        ],
+        "fields": [
+          "Student username",
+          "Password"
+        ],
+        "button": "Sign in"
+      },
+      "feedback": {
+        "explanation": "This is phishing. learn-northbridge.example uses a hyphen to create a completely different domain. The real LMS is learn.northbridge.example, where learn is a subdomain of the official domain.",
+        "cues": [
+          "A hyphenated look-alike domain",
+          "An unexpected request to sign in again",
+          "The padlock does not prove the site is genuine"
+        ],
+        "safe_action": "Close the page and open NorthLearn from your bookmark."
+      }
+    },
+    {
+      "id": "B05",
+      "pool": "B",
+      "position": 5,
+      "channel": "email",
+      "cue": "sender_spoofing",
+      "difficulty": 1,
+      "label": "legitimate",
+      "context": "You signed up for the Career Center newsletter at orientation.",
+      "email": {
+        "from_name": "Northbridge Career Center",
+        "from_address": "careers@northbridge.example",
+        "reply_to": null,
+        "to": "you@student.northbridge.example",
+        "subject": "Career fair next Wednesday: employer list inside",
+        "date": "Wed, 7 Oct 2026, 12:00",
+        "body": [
+          "Hello,",
+          "The autumn career fair takes place next Wednesday from 10:00 to 15:00 in the Student Union. Forty employers will attend, including several technology firms.",
+          "No registration is needed; just bring your student card.",
+          "Career Center"
+        ],
+        "link": null,
+        "attachments": []
+      },
+      "feedback": {
+        "explanation": "This is legitimate. The sender uses the exact official domain, the message matches a newsletter you signed up for, and it asks for nothing sensitive.",
+        "cues": [
+          "Exact official domain after the @ sign",
+          "An expected newsletter you subscribed to",
+          "No request for information, payment, or sign-in"
+        ],
+        "safe_action": "Attend if you are interested."
+      }
+    },
+    {
+      "id": "B06",
+      "pool": "B",
+      "position": 6,
+      "channel": "email",
+      "cue": "unexpected_attachments",
+      "difficulty": 1,
+      "label": "legitimate",
+      "context": "You attended the Photography Club meeting on Tuesday.",
+      "email": {
+        "from_name": "Northbridge Photography Club",
+        "from_address": "photoclub@groups.northbridge.example",
+        "reply_to": null,
+        "to": "you@student.northbridge.example",
+        "subject": "Minutes from Tuesday's meeting",
+        "date": "Wed, 14 Oct 2026, 20:41",
+        "body": [
+          "Hi everyone,",
+          "Thanks for coming on Tuesday. The minutes are attached, including the dates for next month's photo walk.",
+          "Sam, Club Secretary"
+        ],
+        "link": null,
+        "attachments": [
+          "Meeting_Minutes_October.pdf (96 KB)"
+        ]
+      },
+      "feedback": {
+        "explanation": "This is legitimate. You attended the meeting, the minutes were expected, the sender uses an official university subdomain, and the file is an ordinary PDF.",
+        "cues": [
+          "An expected document from a meeting you attended",
+          "An official university subdomain (groups.northbridge.example)",
+          "A common, low-risk file type"
+        ],
+        "safe_action": "It is reasonable to open the minutes."
+      }
+    },
+    {
+      "id": "B07",
+      "pool": "B",
+      "position": 7,
+      "channel": "email",
+      "cue": "sender_spoofing",
+      "difficulty": 2,
+      "label": "phishing",
+      "context": "This email arrives during the first month of the semester.",
+      "email": {
+        "from_name": "Northbridge Student Support",
+        "from_address": "studentsupport@northbridge-edu.example",
+        "reply_to": null,
+        "to": "you@student.northbridge.example",
+        "subject": "Update your emergency contact details",
+        "date": "Mon, 5 Oct 2026, 10:32",
+        "body": [
+          "Dear Student,",
+          "University policy requires every student to update their emergency contact details this semester.",
+          "Complete the secure form using the link below:"
+        ],
+        "link": {
+          "text": "Update my details",
+          "href": "http://northbridge-edu.example/forms/contact"
+        },
+        "attachments": []
+      },
+      "feedback": {
+        "explanation": "This is phishing. northbridge-edu.example adds -edu to create a different domain that only resembles the university's. Always compare the full domain after the @ sign.",
+        "cues": [
+          "A look-alike sender domain",
+          "Official-sounding policy language",
+          "The link goes to the same outside domain"
+        ],
+        "safe_action": "Update contact details only by signing in to the student portal yourself."
+      }
+    },
+    {
+      "id": "B08",
+      "pool": "B",
+      "position": 8,
+      "channel": "email",
+      "cue": "urgency_threats",
+      "difficulty": 2,
+      "label": "legitimate",
+      "context": "The Health Center publishes its clinic dates on the university website.",
+      "email": {
+        "from_name": "Northbridge Health Center",
+        "from_address": "healthcenter@northbridge.example",
+        "reply_to": null,
+        "to": "you@student.northbridge.example",
+        "subject": "Reminder: flu vaccination clinic closes Thursday",
+        "date": "Mon, 12 Oct 2026, 08:15",
+        "body": [
+          "The free flu vaccination clinic runs until Thursday at 16:00 in the Health Center, Room 104.",
+          "No appointment is needed. If you miss it, the next clinic will be held in November.",
+          "Northbridge Health Center"
+        ],
+        "link": null,
+        "attachments": []
+      },
+      "feedback": {
+        "explanation": "This is legitimate. The deadline is real but low-pressure, there is no threat, and a later alternative is offered. The sender's domain is official, and nothing is requested from you.",
+        "cues": [
+          "A genuine, low-pressure deadline",
+          "An alternative is offered instead of a threat",
+          "Official domain and no request for information"
+        ],
+        "safe_action": "Attend the clinic if you wish."
+      }
+    },
+    {
+      "id": "B09",
+      "pool": "B",
+      "position": 9,
+      "channel": "web",
+      "cue": "lookalike_websites",
+      "difficulty": 2,
+      "label": "legitimate",
+      "context": "You opened NorthLearn from your bookmark to submit an assignment.",
+      "web": {
+        "url": "https://learn.northbridge.example/login",
+        "secure": true,
+        "org": "Northbridge University",
+        "heading": "NorthLearn sign in",
+        "body": [
+          "Sign in to access your courses and assignments."
+        ],
+        "fields": [
+          "Student username",
+          "Password"
+        ],
+        "button": "Sign in"
+      },
+      "feedback": {
+        "explanation": "This is legitimate. learn is a subdomain of the official northbridge.example domain, and you navigated there yourself from a bookmark.",
+        "cues": [
+          "The registered domain is exactly northbridge.example",
+          "You arrived from your own bookmark",
+          "A normal sign-in page with no unusual requests"
+        ],
+        "safe_action": "It is safe to sign in."
+      }
+    },
+    {
+      "id": "B10",
+      "pool": "B",
+      "position": 10,
+      "channel": "email",
+      "cue": "credential_requests",
+      "difficulty": 2,
+      "label": "phishing",
+      "context": "You have a PayWave account.",
+      "email": {
+        "from_name": "PayWave Security",
+        "from_address": "security@paywave.example",
+        "reply_to": "paywave-verify@freemail.example",
+        "to": "you@student.northbridge.example",
+        "subject": "Unusual sign-in: confirm your identity",
+        "date": "Wed, 14 Oct 2026, 22:37",
+        "body": [
+          "We noticed an unusual sign-in attempt on your account.",
+          "We have sent a 6-digit verification code to your phone. Reply to this email with the code within 30 minutes to keep your account active."
+        ],
+        "link": null,
+        "attachments": []
+      },
+      "feedback": {
+        "explanation": "This is phishing. Verification codes are meant only for you to type into the real app or website. Anyone who asks you to send them a code is trying to take over your account. The Reply-To address is also an outside free-mail domain.",
+        "cues": [
+          "A request to share a one-time code",
+          "Reply-To points to a different domain",
+          "Time pressure: 30 minutes"
+        ],
+        "safe_action": "Never share codes. Open the PayWave app directly to review your account activity."
+      }
+    },
+    {
+      "id": "B11",
+      "pool": "B",
+      "position": 11,
+      "channel": "email",
+      "cue": "deceptive_links",
+      "difficulty": 2,
+      "label": "legitimate",
+      "context": "You follow the library's announcements.",
+      "email": {
+        "from_name": "Northbridge Library",
+        "from_address": "library@northbridge.example",
+        "reply_to": null,
+        "to": "you@student.northbridge.example",
+        "subject": "New research databases are now available",
+        "date": "Fri, 9 Oct 2026, 11:20",
+        "body": [
+          "Three new research databases are now available to all students, including an IEEE conference archive.",
+          "Browse the full list on the library website:"
+        ],
+        "link": {
+          "text": "View the new databases",
+          "href": "https://library.northbridge.example/databases/new"
+        },
+        "attachments": []
+      },
+      "feedback": {
+        "explanation": "This is legitimate. The link's real destination is library.northbridge.example, a subdomain of the official domain, and it matches the sender. No sign-in or personal data is requested.",
+        "cues": [
+          "The link destination matches the official domain",
+          "The sender and the link belong to the same organization",
+          "No request for credentials"
+        ],
+        "safe_action": "It is safe to follow the link."
+      }
+    },
+    {
+      "id": "B12",
+      "pool": "B",
+      "position": 12,
+      "channel": "email",
+      "cue": "unexpected_attachments",
+      "difficulty": 2,
+      "label": "phishing",
+      "context": "You do not have an account with Harbor Bank.",
+      "email": {
+        "from_name": "Harbor Bank Accounts",
+        "from_address": "invoices@harborbank-billing.example",
+        "reply_to": null,
+        "to": "you@student.northbridge.example",
+        "subject": "Invoice #88213 overdue: see attachment",
+        "date": "Thu, 15 Oct 2026, 09:05",
+        "body": [
+          "Please find attached the overdue invoice for your recent purchase.",
+          "Open the archive and follow the instructions to avoid a late fee."
+        ],
+        "link": null,
+        "attachments": [
+          "Invoice_88213.zip (1.2 MB)"
+        ]
+      },
+      "feedback": {
+        "explanation": "This is phishing. You have no relationship with this bank, the domain is not the bank's official domain, and compressed .zip files are a common way to slip malware past email filters.",
+        "cues": [
+          "An invoice from a company you do not use",
+          "A compressed .zip attachment",
+          "A look-alike billing domain and a late-fee threat"
+        ],
+        "safe_action": "Do not open the attachment. Delete the email and report it."
+      }
+    },
+    {
+      "id": "P01",
+      "pool": "P",
+      "position": 1,
+      "channel": "email",
+      "cue": "sender_spoofing",
+      "difficulty": 1,
+      "label": "phishing",
+      "context": "You finished last semester with good grades.",
+      "email": {
+        "from_name": "Office of the Dean",
+        "from_address": "dean.office@northbridge-admin.example",
+        "reply_to": null,
+        "to": "you@student.northbridge.example",
+        "subject": "Congratulations, you made the Dean's List!",
+        "date": "Tue, 13 Oct 2026, 10:02",
+        "body": [
+          "Congratulations! You have been named to the Dean's List for academic excellence.",
+          "Sign in below to download your official certificate and claim your award:"
+        ],
+        "link": {
+          "text": "Claim my certificate",
+          "href": "http://northbridge-admin.example/awards/claim"
+        },
+        "attachments": []
+      },
+      "feedback": {
+        "explanation": "This is phishing. Good news is a common lure because it lowers our guard. The sender's domain, northbridge-admin.example, is not the university's domain: every genuine university address ends with exactly northbridge.example.",
+        "cues": [
+          "A look-alike sender domain (northbridge-admin.example)",
+          "A flattering reward that lowers suspicion",
+          "A sign-in is required to claim the reward"
+        ],
+        "safe_action": "Do not sign in through the link. Check award notices in the student portal and report the email."
+      }
+    },
+    {
+      "id": "P02",
+      "pool": "P",
+      "position": 2,
+      "channel": "email",
+      "cue": "deceptive_links",
+      "difficulty": 2,
+      "label": "legitimate",
+      "context": "Your instructor said the Unit 3 grades would be posted today.",
+      "email": {
+        "from_name": "NorthLearn",
+        "from_address": "notifications@learn.northbridge.example",
+        "reply_to": null,
+        "to": "you@student.northbridge.example",
+        "subject": "New grade posted: INFO 3310, Unit 3",
+        "date": "Wed, 14 Oct 2026, 15:30",
+        "body": [
+          "A new grade has been posted for INFO 3310, Unit 3 Assignment.",
+          "View the grade and your instructor's comments:"
+        ],
+        "link": {
+          "text": "View grade",
+          "href": "https://learn.northbridge.example/grades/info3310"
+        },
+        "attachments": []
+      },
+      "feedback": {
+        "explanation": "This is legitimate. The link's real destination is on learn.northbridge.example, which matches both the sender and the official domain, and the message was expected because your instructor announced it.",
+        "cues": [
+          "The link destination is on the official domain",
+          "The sender and the link match",
+          "An expected notification you were told about"
+        ],
+        "safe_action": "It is fine to open the link. You can also open NorthLearn from your bookmark."
+      }
+    },
+    {
+      "id": "P03",
+      "pool": "P",
+      "position": 3,
+      "channel": "email",
+      "cue": "urgency_threats",
+      "difficulty": 1,
+      "label": "phishing",
+      "context": "You use CampusConnect, the student social app.",
+      "email": {
+        "from_name": "CampusConnect Security",
+        "from_address": "alerts@campusconnect-support.example",
+        "reply_to": null,
+        "to": "you@student.northbridge.example",
+        "subject": "Your account will be deleted in 24 hours",
+        "date": "Thu, 15 Oct 2026, 23:11",
+        "body": [
+          "We received reports that your account violated our community policy.",
+          "Your account and all of your photos will be permanently deleted in 24 hours unless you appeal now."
+        ],
+        "link": {
+          "text": "Appeal the decision",
+          "href": "http://campusconnect-support.example/appeal"
+        },
+        "attachments": []
+      },
+      "feedback": {
+        "explanation": "This is phishing. A threat of permanent deletion within 24 hours is designed to make you panic and act before you think. The domain campusconnect-support.example is not CampusConnect's real domain (campusconnect.example).",
+        "cues": [
+          "A threat of permanent loss",
+          "A short, artificial deadline",
+          "A look-alike support domain"
+        ],
+        "safe_action": "Open the CampusConnect app directly to check for any real notices, and report the email."
+      }
+    },
+    {
+      "id": "P04",
+      "pool": "P",
+      "position": 4,
+      "channel": "email",
+      "cue": "unexpected_attachments",
+      "difficulty": 2,
+      "label": "legitimate",
+      "context": "Yesterday, you requested an enrollment verification letter through the student portal.",
+      "email": {
+        "from_name": "Northbridge Registrar",
+        "from_address": "registrar@northbridge.example",
+        "reply_to": null,
+        "to": "you@student.northbridge.example",
+        "subject": "Your requested enrollment verification letter",
+        "date": "Tue, 13 Oct 2026, 09:12",
+        "body": [
+          "Dear student,",
+          "As requested through the student portal on Monday, your enrollment verification letter is attached.",
+          "Office of the Registrar"
+        ],
+        "link": null,
+        "attachments": [
+          "Enrollment_Verification_Letter.pdf (148 KB)"
+        ]
+      },
+      "feedback": {
+        "explanation": "This is legitimate. You requested this document yourself, the sender uses the official domain, and a PDF letter is exactly what you asked for.",
+        "cues": [
+          "You requested this attachment",
+          "Official Registrar address",
+          "An ordinary PDF document"
+        ],
+        "safe_action": "It is reasonable to open the letter."
+      }
+    },
+    {
+      "id": "P05",
+      "pool": "P",
+      "position": 5,
+      "channel": "web",
+      "cue": "credential_requests",
+      "difficulty": 2,
+      "label": "phishing",
+      "context": "In the library, you joined a Wi-Fi network called Northbridge-Free-WiFi. This page appeared.",
+      "web": {
+        "url": "http://wifi-northbridge.test/auth",
+        "secure": false,
+        "org": "Northbridge University",
+        "heading": "Wi-Fi access",
+        "body": [
+          "To keep browsing, re-enter your student portal username and password."
+        ],
+        "fields": [
+          "Student username",
+          "Password"
+        ],
+        "button": "Connect"
+      },
+      "feedback": {
+        "explanation": "This is phishing. The page asks for your university password on an unencrypted (http) page hosted on wifi-northbridge.test, which is not the university domain. Fake hotspots often imitate campus networks to collect passwords.",
+        "cues": [
+          "A request for your portal password",
+          "No HTTPS: the connection is not encrypted",
+          "A domain unrelated to northbridge.example"
+        ],
+        "safe_action": "Disconnect, and join only the official campus network listed on the IT Services website."
+      }
+    },
+    {
+      "id": "P06",
+      "pool": "P",
+      "position": 6,
+      "channel": "web",
+      "cue": "lookalike_websites",
+      "difficulty": 2,
+      "label": "legitimate",
+      "context": "You typed portal.northbridge.example into the address bar yourself to check your financial aid.",
+      "web": {
+        "url": "https://portal.northbridge.example/financial-aid",
+        "secure": true,
+        "org": "Northbridge University",
+        "heading": "Financial aid summary",
+        "body": [
+          "Academic year 2026 to 2027",
+          "Status: award letter available",
+          "Next disbursement: 15 October"
+        ],
+        "fields": [],
+        "button": "Download award letter"
+      },
+      "feedback": {
+        "explanation": "This is legitimate. You typed the address yourself, the registered domain is northbridge.example, and the page shows information rather than asking for secrets.",
+        "cues": [
+          "You navigated directly by typing the address",
+          "The registered domain is exactly northbridge.example",
+          "No request for passwords or codes"
+        ],
+        "safe_action": "It is safe to use this page."
+      }
+    }
+  ]
+}

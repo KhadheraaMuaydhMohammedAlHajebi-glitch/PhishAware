@@ -1,0 +1,65 @@
+{# Renders one fictional scenario. Links and form fields are inert by design. #}
+<article class="scenario" aria-label="{{ 'Email message' if scenario.channel == 'email' else 'Web page' }}">
+  {% if scenario.context %}
+  <p class="scenario__context">{{ scenario.context }}</p>
+  {% endif %}
+  {% if scenario.channel == 'email' %}
+  {% set e = scenario.email %}
+  <div class="email">
+    <div class="email__head">
+      <h2 class="email__subject">{{ e.subject }}</h2>
+      <dl class="email__meta">
+        <div><dt>From</dt><dd><strong>{{ e.from_name }}</strong> <span class="addr">&lt;{{ e.from_address }}&gt;</span></dd></div>
+        {% if e.reply_to %}<div><dt>Reply-To</dt><dd><span class="addr">{{ e.reply_to }}</span></dd></div>{% endif %}
+        <div><dt>To</dt><dd><span class="addr">{{ e.to }}</span></dd></div>
+        <div><dt>Date</dt><dd>{{ e.date }}</dd></div>
+      </dl>
+    </div>
+    {% if e.attachments %}
+    <ul class="attachments" aria-label="Attachments">
+      {% for file in e.attachments %}
+      <li class="attachment">
+        <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true"><path d="M16.5 7.5 9 15a2.1 2.1 0 0 0 3 3l7.6-7.6a4 4 0 0 0-5.7-5.7L6.3 12.3a6 6 0 0 0 8.5 8.5L21 14.6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+        <span class="addr">{{ file }}</span>
+      </li>
+      {% endfor %}
+    </ul>
+    {% endif %}
+    <div class="email__body">
+      {% for paragraph in e.body %}<p>{{ paragraph }}</p>{% endfor %}
+      {% if e.link %}
+      <p><span class="fake-link" aria-disabled="true">{{ e.link.text }}</span></p>
+      <details class="link-preview"{% if reveal %} open{% endif %}>
+        <summary>Show where this link really goes</summary>
+        <code>{{ e.link.href }}</code>
+      </details>
+      {% endif %}
+    </div>
+  </div>
+  {% else %}
+  {% set w = scenario.web %}
+  <div class="browser">
+    <div class="browser__bar">
+      <span class="browser__dots" aria-hidden="true"><i></i><i></i><i></i></span>
+      <div class="browser__address {{ 'is-secure' if w.secure else 'is-insecure' }}">
+        {% if w.secure %}
+        <svg viewBox="0 0 24 24" width="15" height="15" aria-label="Encrypted connection" role="img"><rect x="5" y="10.5" width="14" height="10" rx="2" fill="currentColor"/><path d="M8 10.5V8a4 4 0 0 1 8 0v2.5" fill="none" stroke="currentColor" stroke-width="2"/></svg>
+        {% else %}
+        <span class="browser__warn">Not secure</span>
+        {% endif %}
+        <span class="browser__url">{{ w.url }}</span>
+      </div>
+    </div>
+    <div class="browser__page">
+      <div class="site-brand"><span class="site-brand__crest" aria-hidden="true">{{ w.org[0] }}</span>{{ w.org }}</div>
+      <h2 class="site-title">{{ w.heading }}</h2>
+      {% for paragraph in w.body %}<p>{{ paragraph }}</p>{% endfor %}
+      {% for field in w.fields %}
+      <div class="fake-field"><span class="fake-field__label">{{ field }}</span><span class="fake-field__box" aria-hidden="true"></span></div>
+      {% endfor %}
+      {% if w.button %}<span class="fake-button" aria-disabled="true">{{ w.button }}</span>{% endif %}
+      <p class="mock-note">This page is an illustration. Nothing on it can be typed into or submitted.</p>
+    </div>
+  </div>
+  {% endif %}
+</article>
