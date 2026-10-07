@@ -1,5 +1,12 @@
-"""Black-box tests for the personal results page (FR-08, NFR-10)."""
+"""Tests for the personal results page (FR-08, NFR-10).
 
+The page is tested as a black box through the test client; the chart geometry
+helpers are pure functions and are tested directly at their boundaries.
+"""
+
+import unittest
+
+from src.modules import results
 from src.modules.scoring import CUE_LABELS
 from tests.helpers import AppTestCase
 
@@ -56,3 +63,13 @@ class ResultsTests(AppTestCase):
         next_steps = response.get_data(as_text=True).split(NEXT_STEPS)[1]
         self.assertIn("You made no mistakes in the post-assessment", next_steps)
         self.assertNotIn("<li>", next_steps.split("</section>")[0])
+
+
+class ChartGeometryTests(unittest.TestCase):
+    def test_bar_widths_at_the_boundaries(self):
+        self.assertEqual(results.bar_width(None), 0)     # cue not measured
+        self.assertEqual(results.bar_width(0), 3)        # thin marker that stays visible
+        self.assertEqual(results.bar_width(50), 200)
+        self.assertEqual(results.bar_width(100), 400)
+        self.assertIsNone(results.percent_correct(None))
+        self.assertEqual(results.percent_correct(0.5), 50)
