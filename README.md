@@ -36,6 +36,7 @@ python run.py                    # open http://127.0.0.1:5000
 
 ```bash
 python -m unittest discover -s tests -t .   # run all tests (or: pip install pytest && pytest)
+coverage run -m unittest discover -s tests -t . && coverage report   # statement coverage of src/
 flask --app src.app analytics               # cohort statistics for the three research questions
 python scripts/demo_core_logic.py           # core algorithms on inputs you can check by hand
 python scripts/inspect_db.py                # privacy-preserving summary of stored data
@@ -64,7 +65,7 @@ PhishAware/
   docs/CHANGELOG.md       release history
   docs/releases/          release notes for each tag
   design/                 Unit 3 design artifacts
-  .github/workflows/      CI pipeline (flake8, pytest, Bandit, pip-audit)
+  .github/workflows/      CI pipeline (flake8, pytest with coverage, Bandit, pip-audit)
 ```
 
 ## Git workflow
