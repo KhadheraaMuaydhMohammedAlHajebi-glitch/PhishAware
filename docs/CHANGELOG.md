@@ -14,6 +14,9 @@ All notable changes to PhishAware are recorded here (Keep a Changelog format).
 - Fictional 30-scenario bank (Forms A and B plus a practice pool) using reserved domains only.
 - Automated unit tests and a GitHub Actions CI workflow.
 
+### Notes
+- The prototype was completed for the Unit 4 submission; it was imported into Git and tagged `v0.4.0` on 2026-10-07.
+
 ### Planned
 - 0.5.0 (Unit 5): post-assessment (FR-07), results page (FR-08), SUS survey (FR-09).
 - 0.6.0 (Unit 6): administrator reporting (FR-11), encryption at rest, and pilot deployment.
