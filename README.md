@@ -58,30 +58,32 @@ PhishAware/
   tests/                  unit, black-box, data-integrity, and security tests
   scripts/inspect_db.py   database summary used in the demo
   docs/CHANGELOG.md       release history
+  docs/releases/          release notes for each tag
   design/                 Unit 3 design artifacts
   .github/workflows/      CI pipeline (flake8, pytest, Bandit, pip-audit)
 ```
 
 ## Git workflow
 
-- `main` holds stable, submitted releases, tagged per unit (for example `v0.4.0-unit4`).
-- `develop` is the integration branch.
-- `feature/<module>-<topic>` branches are short-lived and merge into `develop` through pull requests that must pass CI.
+The repository follows a Git Flow-style model:
+
+- `main` holds only released versions. Every release is an annotated tag that follows Semantic Versioning, for example `v0.4.0`.
+- `develop` is the integration branch for finished work that has passed the tests.
+- `feature/<module>-<topic>` branches are short-lived and merge into `develop` with `--no-ff`, so each feature keeps a visible merge commit.
+- `fix/<topic>` branches correct defects, and `release/<version>` branches update the version, changelog, and release notes before a release.
 - Commits follow Conventional Commits with requirement IDs, for example `feat(M4): add immediate feedback page [FR-06]`.
 
-Publishing this release:
+Cutting a release:
 
 ```bash
-git checkout develop
-git checkout -b feature/unit4-initial-implementation
-git add .
-git commit -m "feat(M1-M4): consent, pre-assessment, lessons, and practice feedback [FR-01..FR-06, FR-10]"
-git push -u origin feature/unit4-initial-implementation
-# open a pull request into develop, merge after CI passes, then merge develop into main
-git checkout main && git merge develop
-git tag -a v0.4.0-unit4 -m "Unit 4 initial implementation"
-git push origin main --tags
+git checkout -b release/0.4.0 develop        # update the version, changelog, and docs/releases
+git checkout main && git merge --no-ff release/0.4.0
+git tag -a v0.4.0 -m "v0.4.0: Unit 4 milestone - initial implementation"
+git checkout develop && git merge --no-ff release/0.4.0
+git push origin main develop --tags
 ```
+
+Release notes for each tag are kept in `docs/releases/` and published as GitHub Releases.
 
 ## Security, privacy, and ethics
 
