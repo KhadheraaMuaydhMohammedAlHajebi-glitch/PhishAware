@@ -8,6 +8,11 @@
 # reverse proxy exactly as docs/deployment.md describes, and the running stack is
 # smoke-tested. A change is integrated only when the artifact that would be
 # deployed has been built and exercised.
+#
+# Job 3, evaluation: the running stack is measured. A load test reports latency,
+# throughput, and whether every score the system reports is correct; a browser
+# audit reports accessibility and page-load time. docs/evaluation.md explains
+# the method. The job fails when a requirement's budget is exceeded.
 name: CI
 
 on:
@@ -47,7 +52,7 @@ jobs:
           pip install -r requirements-dev.txt
 
       - name: Lint (flake8)
-        run: flake8 src tests scripts run.py wsgi.py gunicorn.conf.py
+        run: flake8 src tests scripts evaluation run.py wsgi.py gunicorn.conf.py
 
       - name: Unit tests with statement coverage (pytest, coverage.py)
         run: |
@@ -148,6 +153,107 @@ jobs:
           docker compose logs --no-color --tail 60 > stack.log 2>&1 || true
           python3 scripts/ci_summary.py failure build.log failfast.log up.log smoke.log \
             hardening.log commands.log ps.log stack.log
+
+      - name: Stop the stack
+        if: always()
+        run: docker compose down --volumes
+
+  evaluation:
+    name: Evaluate the running stack (load, accuracy, accessibility)
+    runs-on: ubuntu-24.04
+    needs: container
+    env:
+      PHISHAWARE_VERSION: ci
+    steps:
+      - name: Check out the code
+        uses: actions/checkout@v6
+
+      - name: Write a throwaway .env with generated secrets
+        run: |
+          {
+            echo "PHISHAWARE_ENV=production"
+            echo "PHISHAWARE_SECRET_KEY=$(python3 -c 'import secrets; print(secrets.token_hex(32))')"
+            echo "PHISHAWARE_DOMAIN=localhost"
+          } > .env
+          password="$(python3 -c 'import secrets; print(secrets.token_urlsafe(18))')"
+          echo "::add-mask::$password"
+          echo "EVALUATOR_PASSWORD=$password" >> "$GITHUB_ENV"
+
+      - name: Start the stack and create the evaluator account
+        run: |
+          docker compose up --detach --build --wait --wait-timeout 180 2>&1 | tee up.log
+          for attempt in $(seq 1 30); do
+            docker compose cp proxy:/data/caddy/pki/authorities/local/root.crt caddy-root.crt \
+              > /dev/null 2>&1 && break
+            sleep 1
+          done
+          docker compose exec -T app flask create-admin --username evaluator \
+            --password "$EVALUATOR_PASSWORD"
+
+      - name: Describe the test machine and the software under test
+        run: |
+          {
+            echo "Runner: $(nproc) CPUs, $(awk '/MemTotal/ {printf "%.1f", $2 / 1048576}' /proc/meminfo) GB of memory, $(. /etc/os-release && echo "$PRETTY_NAME"), kernel $(uname -r)"
+            echo "Docker: $(docker version --format '{{.Server.Version}}'), Compose $(docker compose version --short)"
+            docker compose exec -T app python -c "import platform, sqlite3, flask, gunicorn, importlib.metadata as m; print('Image: Python', platform.python_version() + ', Flask', m.version('flask') + ', Werkzeug', m.version('werkzeug') + ', Gunicorn', gunicorn.__version__ + ', SQLite', sqlite3.sqlite_version)"
+            echo "Proxy: $(docker compose exec -T proxy caddy version)"
+            echo "Server: ${WEB_CONCURRENCY:-2} worker processes x ${PHISHAWARE_THREADS:-4} threads"
+            echo "Image size: $(docker image inspect phishaware:ci --format '{{.Size}}' | awk '{printf "%.1f MB", $1 / 1000000}')"
+          } | tee machine.txt
+          docker compose exec -T app pip freeze | tee freeze.txt
+
+      - name: Load test - latency, throughput, and result accuracy
+        run: |
+          python3 evaluation/loadtest.py --base-url https://localhost --cacert caddy-root.crt \
+            --levels 1,5,10,25,50,100 --min-journeys 25 \
+            --admin-user evaluator --admin-password "$EVALUATOR_PASSWORD" \
+            --markdown "$GITHUB_STEP_SUMMARY" | tee loadtest.log
+
+      - name: Memory footprint after the load test
+        if: always()
+        run: |
+          {
+            for service in app proxy; do
+              peak="$(docker compose exec -T "$service" cat /sys/fs/cgroup/memory.peak 2> /dev/null || true)"
+              now="$(docker compose exec -T "$service" cat /sys/fs/cgroup/memory.current 2> /dev/null || true)"
+              echo "$service container: peak ${peak:-unknown} bytes, now ${now:-unknown} bytes"
+            done
+            docker stats --no-stream --format '{{.Name}}: {{.MemUsage}}, {{.PIDs}} processes'
+            docker compose exec -T app sh -c 'ls -l /data/phishaware.db* | awk "{print \$5, \$9}"'
+          } 2>&1 | tee memory.txt
+
+      - name: Set up Python for the browser audit
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+
+      - name: Install the browser and axe-core
+        run: |
+          pip install -r evaluation/requirements.txt
+          python -m playwright install --with-deps chromium
+          npm install --no-save --prefix "$RUNNER_TEMP/axe" axe-core@4.10.2
+
+      - name: Browser audit - accessibility, layout, and page load
+        run: |
+          python evaluation/browser_audit.py --base-url https://localhost --ignore-https-errors \
+            --axe "$RUNNER_TEMP/axe/node_modules/axe-core/axe.min.js" \
+            --admin-user evaluator --admin-password "$EVALUATOR_PASSWORD" \
+            --markdown "$GITHUB_STEP_SUMMARY" | tee audit.log
+
+      - name: Publish the measurements
+        if: always()
+        run: |
+          python3 scripts/ci_summary.py notice "Test machine" machine.txt
+          python3 scripts/ci_summary.py notice "Load test" loadtest.log
+          python3 scripts/ci_summary.py notice "Memory" memory.txt
+          python3 scripts/ci_summary.py notice "Browser audit" audit.log
+          python3 scripts/ci_summary.py notice "Resolved dependencies" freeze.txt
+
+      - name: Show the end of the stack's log if a step failed
+        if: failure()
+        run: |
+          docker compose logs --no-color --tail 60 > stack.log 2>&1 || true
+          python3 scripts/ci_summary.py failure up.log stack.log
 
       - name: Stop the stack
         if: always()

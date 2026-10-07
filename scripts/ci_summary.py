@@ -1,10 +1,12 @@
 """Publish CI results where a reviewer looks first: the run summary and annotations.
 
-    python scripts/ci_summary.py quality            after the lint, test, and scan steps
-    python scripts/ci_summary.py failure FILE ...   after a failed step: show each log's end
+    python scripts/ci_summary.py quality              after the lint, test, and scan steps
+    python scripts/ci_summary.py notice TITLE FILE    publish a whole report as a notice
+    python scripts/ci_summary.py failure FILE ...     after a failed step: show each log's end
 
-GitHub shows annotations beside the job and in the Checks API, so a failure can
-be diagnosed without opening the raw log. The script uses the standard library only.
+GitHub shows annotations beside the job and in the Checks API, so a result can
+be read, and a failure diagnosed, without opening the raw log. The script uses
+the standard library only.
 """
 
 import os
@@ -13,7 +15,7 @@ import sys
 from pathlib import Path
 
 TAIL_LINES = 40
-MAX_CHARS = 3000
+MAX_CHARS = 3000   # annotations are kept well under GitHub's size limit
 
 
 def escape(text):
@@ -67,6 +69,22 @@ def quality():
     return 0
 
 
+def notice(title, path):
+    """Publish a report as one notice, or as numbered parts when it is long."""
+    parts, current = [], ""
+    for line in read(path).rstrip().splitlines():
+        if current and len(current) + len(line) + 1 > MAX_CHARS:
+            parts.append(current)
+            current = ""
+        current += line + "\n"
+    if current.strip():
+        parts.append(current)
+    for number, part in enumerate(parts, start=1):
+        label = title if len(parts) == 1 else f"{title} ({number} of {len(parts)})"
+        annotate("notice", label, part.rstrip())
+    return 0
+
+
 def failure(paths):
     """Surface the last lines of each log as an error annotation."""
     for path in paths:
@@ -81,6 +99,8 @@ def failure(paths):
 def main(argv):
     if len(argv) >= 2 and argv[1] == "quality":
         return quality()
+    if len(argv) == 4 and argv[1] == "notice":
+        return notice(argv[2], argv[3])
     if len(argv) >= 3 and argv[1] == "failure":
         return failure(argv[2:])
     print(__doc__)
