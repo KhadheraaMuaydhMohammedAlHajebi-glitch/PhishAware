@@ -3,7 +3,7 @@
 An interactive web application that helps university students recognize phishing emails and websites through fictional scenarios and immediate, cue-by-cue feedback.
 MSIT 5910 Capstone Project, University of the People.
 
-**Release 0.5.0 (Unit 5 core logic and unit testing)**
+**Release 0.5.1 (Unit 5 core logic and unit testing)**
 
 ## What works in this release
 

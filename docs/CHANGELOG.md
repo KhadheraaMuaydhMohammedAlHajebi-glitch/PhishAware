@@ -2,6 +2,15 @@
 
 All notable changes to PhishAware are recorded here (Keep a Changelog format).
 
+## [0.5.1] - 2026-10-07 (Unit 5: testing completion)
+
+### Added
+- Statement-coverage measurement with coverage.py (`.coveragerc`, development requirement, and a 90% threshold in the CI workflow).
+- 12 new tests (78 in total) for the dashboard, lessons, navigation guards, data tier, analytics edge cases, and chart boundaries.
+
+### Changed
+- Statement coverage of `src/` rose from 94% to 100%; `progress.py`, which no test had exercised through the dashboard, rose from 44% to 100%.
+
 ## [0.5.0] - 2026-10-07 (Unit 5: core logic and unit testing)
 
 ### Added
