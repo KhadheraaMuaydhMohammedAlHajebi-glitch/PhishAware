@@ -16,7 +16,8 @@
   <p class="score">{{ '%.1f'|format(score) }}<small>%</small></p>
   <p class="lead">You classified {{ correct }} of {{ total }} correctly on a form you had not seen before.</p>
   <div class="actions">
-    <a class="btn btn--primary" href="{{ url_for('consent.dashboard') }}">Back to dashboard</a>
+    <a class="btn btn--primary" href="{{ url_for('results.results') }}">See your results</a>
+    <a class="btn btn--ghost" href="{{ url_for('consent.dashboard') }}">Back to dashboard</a>
   </div>
   {% endif %}
 </section>
