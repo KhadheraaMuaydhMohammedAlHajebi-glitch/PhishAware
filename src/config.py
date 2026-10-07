@@ -39,6 +39,13 @@ class Config:
     SESSION_COOKIE_SECURE = os.environ.get("PHISHAWARE_COOKIE_SECURE", "0") == "1"
     PERMANENT_SESSION_LIFETIME = 2 * 60 * 60  # seconds (two hours)
 
+    # Data protection jobs (M8): records older than the retention period are
+    # deleted by "flask purge-expired"; "flask backup-db" writes snapshots that
+    # are encrypted with BACKUP_KEY, which is never stored beside the backups.
+    RETENTION_DAYS = int(os.environ.get("PHISHAWARE_RETENTION_DAYS", "90"))
+    BACKUP_KEY = os.environ.get("PHISHAWARE_BACKUP_KEY")
+    BACKUP_DIR = os.environ.get("PHISHAWARE_BACKUP_DIR")
+
     # Administrator access (M7, NFR-10): idle sign-out and sign-in rate limit.
     ADMIN_IDLE_TIMEOUT = 15 * 60       # seconds without a request before sign-out
     ADMIN_MAX_FAILED_LOGINS = 5        # failed attempts allowed per username ...

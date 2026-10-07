@@ -4,6 +4,10 @@ __pycache__/
 *.pyc
 instance/
 *.db
+*.db-wal
+*.db-shm
+backups/
+*.db.enc
 .env
 .pytest_cache/
 .coverage
