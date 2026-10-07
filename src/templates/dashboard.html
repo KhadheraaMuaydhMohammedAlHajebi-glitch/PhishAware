@@ -72,13 +72,15 @@
     <span class="badge badge--locked">After the practice scenarios</span>
     {% endif %}
   </li>
-  <li class="step {{ 'step--current' if post.done else 'step--locked' }}">
+  <li class="step {% if progress.survey_done %}step--done{% elif post.done %}step--current{% else %}step--locked{% endif %}">
     <span class="step__num" aria-hidden="true">6</span>
     <div class="step__body">
       <h2>Results and usability survey</h2>
       <p>Your before-and-after comparison, cue feedback, and a ten-question survey.</p>
     </div>
-    {% if post.done %}
+    {% if progress.survey_done %}
+    <a class="btn btn--secondary btn--sm" href="{{ url_for('results.results') }}">Results</a>
+    {% elif post.done %}
     <a class="btn btn--primary btn--sm" href="{{ url_for('results.results') }}">See your results</a>
     {% else %}
     <span class="badge badge--locked">After the post-assessment</span>

@@ -48,7 +48,10 @@
   <p>You made no mistakes in the post-assessment. Keep applying the same checks to real messages.</p>
   {% endif %}
   <div class="actions">
-    <a class="btn btn--primary" href="{{ url_for('learning.lessons') }}">Review the lessons</a>
+    {% if not survey_done %}
+    <a class="btn btn--primary" href="{{ url_for('survey.survey_form') }}">Take the usability survey</a>
+    {% endif %}
+    <a class="btn btn--ghost" href="{{ url_for('learning.lessons') }}">Review the lessons</a>
     <a class="btn btn--ghost" href="{{ url_for('consent.dashboard') }}">Back to dashboard</a>
   </div>
 </section>

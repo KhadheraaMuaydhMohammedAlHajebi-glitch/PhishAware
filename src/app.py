@@ -7,7 +7,9 @@ from flask import Flask, render_template
 
 from src import __version__, db
 from src.config import Config
-from src.modules import analytics, assessment, consent, learning, practice, results
+from src.modules import (
+    analytics, assessment, consent, learning, practice, results, survey,
+)
 from src.modules.scoring import CUE_LABELS
 from src.modules.security import (
     apply_security_headers, current_participant, get_csrf_token, verify_csrf,
@@ -31,7 +33,7 @@ def create_app(test_config=None):
 
     db.init_app(app)
     app.cli.add_command(analytics.analytics_command)
-    for module in (consent, assessment, learning, practice, results):
+    for module in (consent, assessment, learning, practice, results, survey):
         app.register_blueprint(module.bp)
 
     # M8 is cross-cutting: it runs before and after every request.

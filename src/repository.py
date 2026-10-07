@@ -149,6 +149,33 @@ def responses_with_cues(attempt_id):
     return [(row["cue"], bool(row["is_correct"])) for row in rows]
 
 
+# Usability survey (M6) ---------------------------------------------------------
+def save_sus(participant_id, ratings, score):
+    """Store the ten ratings once and mark the participant as completed.
+
+    A repeated submission is ignored (NFR-05). Returns True when a row was stored.
+    """
+    db = get_db()
+    cursor = db.execute(
+        "INSERT OR IGNORE INTO sus_response "
+        "(participant_id, q1, q2, q3, q4, q5, q6, q7, q8, q9, q10, score, submitted_at) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (participant_id, *ratings, score, utc_now()),
+    )
+    stored = cursor.rowcount == 1
+    if stored:
+        db.execute("UPDATE participant SET status = 'completed' WHERE id = ?", (participant_id,))
+    db.commit()
+    return stored
+
+
+def get_sus(participant_id):
+    return get_db().execute(
+        "SELECT score, submitted_at FROM sus_response WHERE participant_id = ?",
+        (participant_id,),
+    ).fetchone()
+
+
 # Cohort analytics (M5) --------------------------------------------------------
 # None of these queries selects a participant identifier (NFR-11).
 def participant_count():

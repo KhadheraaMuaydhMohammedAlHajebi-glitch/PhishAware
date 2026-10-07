@@ -38,6 +38,7 @@ def build_progress(participant):
         "pre": phase_status(participant_id, "pre", pre_total),
         "practice": phase_status(participant_id, "practice", practice_total),
         "post": phase_status(participant_id, "post", post_total),
+        "survey_done": repository.get_sus(participant_id) is not None,
     }
 
 
