@@ -147,3 +147,49 @@ def responses_with_cues(attempt_id):
         (attempt_id,),
     ).fetchall()
     return [(row["cue"], bool(row["is_correct"])) for row in rows]
+
+
+# Cohort analytics (M5) --------------------------------------------------------
+# None of these queries selects a participant identifier (NFR-11).
+def participant_count():
+    return get_db().execute("SELECT COUNT(*) AS n FROM participant").fetchone()["n"]
+
+
+# Exact percentage correct per completed phase, recomputed from the stored answers
+# so that cohort means are not distorted by the rounding of attempt.score.
+_COHORT_SQL = (
+    "SELECT "
+    "(SELECT 100.0 * SUM(r.is_correct) / COUNT(*) FROM attempt a "
+    "JOIN response r ON r.attempt_id = a.id WHERE a.participant_id = p.id "
+    "AND a.phase = 'pre' AND a.completed_at IS NOT NULL) AS pre, "
+    "(SELECT 100.0 * SUM(r.is_correct) / COUNT(*) FROM attempt a "
+    "JOIN response r ON r.attempt_id = a.id WHERE a.participant_id = p.id "
+    "AND a.phase = 'post' AND a.completed_at IS NOT NULL) AS post, "
+    "(SELECT s.score FROM sus_response s WHERE s.participant_id = p.id) AS sus "
+    "FROM participant p ORDER BY p.seq"
+)
+
+
+def cohort_records():
+    """One record per participant: pre and post percentages and the SUS score.
+
+    A phase that is not complete is None, as is a missing survey.
+    """
+    rows = get_db().execute(_COHORT_SQL).fetchall()
+    return [{"pre": row["pre"], "post": row["post"], "sus": row["sus"]} for row in rows]
+
+
+def cohort_responses(phase):
+    """(cue, is_correct) pairs for one phase, from participants who finished both tests."""
+    rows = get_db().execute(
+        "SELECT s.cue AS cue, r.is_correct AS is_correct FROM response r "
+        "JOIN attempt a ON a.id = r.attempt_id "
+        "JOIN scenario s ON s.id = r.scenario_id "
+        "WHERE a.phase = ? AND a.participant_id IN ("
+        "SELECT participant_id FROM attempt "
+        "WHERE phase IN ('pre', 'post') AND completed_at IS NOT NULL "
+        "GROUP BY participant_id HAVING COUNT(*) = 2) "
+        "ORDER BY r.id",
+        (phase,),
+    ).fetchall()
+    return [(row["cue"], bool(row["is_correct"])) for row in rows]
