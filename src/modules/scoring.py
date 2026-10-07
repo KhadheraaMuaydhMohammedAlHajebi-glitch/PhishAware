@@ -48,7 +48,7 @@ def sus_score(ratings):
         raise ValueError("SUS requires exactly ten ratings")
     total = 0
     for number, rating in enumerate(ratings, start=1):
-        if not isinstance(rating, int) or not 1 <= rating <= 5:
+        if isinstance(rating, bool) or not isinstance(rating, int) or not 1 <= rating <= 5:
             raise ValueError("each rating must be an integer from 1 to 5")
         total += (rating - 1) if number % 2 == 1 else (5 - rating)
     return total * 2.5
