@@ -1,0 +1,89 @@
+{% extends "base.html" %}
+{% block title %}Pilot results{% endblock %}
+{% block content %}
+<section class="page-head">
+  <h1>Pilot results</h1>
+  <p class="lead">Aggregate statistics computed from pseudonymous records. No participant identifier is shown on this page or included in the export.</p>
+</section>
+<h2 class="section-title">Participation</h2>
+<div class="stats stats--four">
+  <div class="stat">
+    <p class="stat__label">Consented</p>
+    <p class="stat__value">{{ funnel.consented }}</p>
+  </div>
+  <div class="stat">
+    <p class="stat__label">Finished the pre-assessment</p>
+    <p class="stat__value">{{ funnel.pre_done }}</p>
+  </div>
+  <div class="stat">
+    <p class="stat__label">Finished both assessments</p>
+    <p class="stat__value">{{ complete }}</p>
+  </div>
+  <div class="stat">
+    <p class="stat__label">Finished the survey</p>
+    <p class="stat__value">{{ funnel.survey_done }}</p>
+    {% if completion_rate is not none %}<p class="stat__note">{{ completion_rate }}% of those who consented (target {{ targets.completion }}%)</p>{% endif %}
+  </div>
+</div>
+{% if not reportable %}
+<section class="sheet sheet--spaced">
+  <h2>Statistics appear at {{ minimum }} completed participants</h2>
+  <p>{{ complete }} of {{ minimum }} participants have finished both assessments. Scores stay hidden until then, so that an average can never reveal one person's result.</p>
+</section>
+{% else %}
+<h2 class="section-title">Learning outcome (RQ1), n = {{ summary.n }}</h2>
+<div class="stats">
+  <div class="stat">
+    <p class="stat__label">Mean before training</p>
+    <p class="stat__value">{{ '%.1f'|format(summary.mean_pre) }}%</p>
+  </div>
+  <div class="stat">
+    <p class="stat__label">Mean after training</p>
+    <p class="stat__value">{{ '%.1f'|format(summary.mean_post) }}%</p>
+  </div>
+  <div class="stat">
+    <p class="stat__label">Mean gain</p>
+    <p class="stat__value stat__value--{{ 'up' if summary.mean_gain > 0 else ('down' if summary.mean_gain < 0 else 'flat') }}">{{ '%+.1f'|format(summary.mean_gain) }} points</p>
+    <p class="stat__note">Target: at least {{ targets.gain }} points</p>
+  </div>
+</div>
+<section class="sheet sheet--spaced">
+  <h2>Score summary</h2>
+  <div class="table-scroll">
+    <table class="summary-table">
+      <thead><tr><th scope="col">Measure</th><th scope="col">Mean</th><th scope="col">Median</th><th scope="col"><abbr title="Standard deviation">SD</abbr></th></tr></thead>
+      <tbody>
+      {% for label, stats in table %}
+        <tr><th scope="row">{{ label }}</th><td>{{ '%.1f'|format(stats.mean) }}</td><td>{{ '%.1f'|format(stats.median) }}</td><td>{{ '%.1f'|format(stats.sd) }}</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% if summary.d_z is none %}
+  <p class="muted">Every participant gained the same amount, so no effect size can be computed.</p>
+  {% else %}
+  <p class="muted">Paired comparison: Cohen's d<sub>z</sub> = {{ '%.2f'|format(summary.d_z) }}, t({{ summary.n - 1 }}) = {{ '%.2f'|format(summary.t) }}. Interpret with caution while the sample is small.</p>
+  {% endif %}
+</section>
+<section class="sheet chart">
+  <h2>Correct answers by cue (RQ2)</h2>
+  <p class="chart__legend"><span class="key key--pre" aria-hidden="true"></span>Before training <span class="key key--post" aria-hidden="true"></span>After training. Percentages pool every completed participant.</p>
+  {% include "_cue_chart.html" %}
+</section>
+<section class="sheet sheet--spaced">
+  <h2>Usability (RQ3)</h2>
+  {% if sus %}
+  <p>Mean System Usability Scale score <strong>{{ '%.1f'|format(sus.mean) }}</strong> (median {{ '%.1f'|format(sus.median) }}) from {{ sus_count }} survey response{{ '' if sus_count == 1 else 's' }}. Target: at least {{ targets.sus }}.</p>
+  {% else %}
+  <p>No completed participant has answered the usability survey yet.</p>
+  {% endif %}
+</section>
+<section class="sheet sheet--spaced">
+  <h2>De-identified export</h2>
+  <p>One row per completed participant with scores, the gain, the usability score, and correct answers per cue. The file has no random ID and no timestamp, and its rows are shuffled.</p>
+  <div class="actions">
+    <a class="btn btn--primary" href="{{ url_for('admin.export_csv') }}">Download the CSV export</a>
+  </div>
+</section>
+{% endif %}
+{% endblock %}

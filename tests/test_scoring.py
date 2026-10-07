@@ -71,3 +71,23 @@ class CueErrorRateTests(unittest.TestCase):
             ("urgency_threats", True),
         ])
         self.assertEqual(rates, {"deceptive_links": 0.5, "urgency_threats": 0.0})
+
+
+class DescribeTests(unittest.TestCase):
+    def test_mean_median_and_sample_standard_deviation(self):
+        # Gains of 25, 16.7, 25, 0, and 16.7 points: the median resists the zero.
+        self.assertEqual(
+            scoring.describe([25.0, 16.7, 25.0, 0.0, 16.7]),
+            {"mean": 16.7, "median": 16.7, "sd": 10.2},
+        )
+
+    def test_even_count_takes_the_middle_of_the_two_central_values(self):
+        self.assertEqual(scoring.describe([50.0, 75.0, 85.0, 100.0])["median"], 80.0)
+
+    def test_single_value_has_no_standard_deviation(self):
+        self.assertEqual(scoring.describe([75.0]), {"mean": 75.0, "median": 75.0, "sd": None})
+
+    def test_accepts_a_generator_and_rejects_no_values(self):
+        self.assertEqual(scoring.describe(value for value in (1, 2, 3))["mean"], 2.0)
+        with self.assertRaises(ValueError):
+            scoring.describe([])

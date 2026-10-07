@@ -8,15 +8,17 @@ from flask import Flask, render_template
 from src import __version__, db
 from src.config import Config
 from src.modules import (
-    analytics, assessment, consent, learning, practice, results, survey,
+    admin, analytics, assessment, consent, learning, practice, results, survey,
 )
 from src.modules.scoring import CUE_LABELS
 from src.modules.security import (
-    apply_security_headers, current_participant, get_csrf_token, verify_csrf,
+    apply_security_headers, current_admin, current_participant, get_csrf_token,
+    verify_csrf,
 )
 
 ERROR_TITLES = {
     400: "Request not accepted",
+    403: "Not available yet",
     404: "Page not found",
     405: "Action not allowed",
     500: "Something went wrong",
@@ -33,7 +35,8 @@ def create_app(test_config=None):
 
     db.init_app(app)
     app.cli.add_command(analytics.analytics_command)
-    for module in (consent, assessment, learning, practice, results, survey):
+    app.cli.add_command(admin.create_admin_command)
+    for module in (consent, assessment, learning, practice, results, survey, admin):
         app.register_blueprint(module.bp)
 
     # M8 is cross-cutting: it runs before and after every request.
@@ -47,13 +50,16 @@ def create_app(test_config=None):
             "app_version": __version__,
             "cue_labels": CUE_LABELS,
             "session_participant": current_participant(),
+            "session_admin": current_admin(),
         }
 
     _register_error_handlers(app)
     _configure_logging(app)
 
     with app.app_context():
-        if not db.database_ready():
+        if db.database_ready():
+            db.ensure_schema()  # adds any table a newer release introduced
+        else:
             db.init_db()
     return app
 
