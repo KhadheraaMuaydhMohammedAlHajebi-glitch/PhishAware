@@ -31,7 +31,7 @@ class AppTestCase(unittest.TestCase):
             return get_db().execute(sql, params).fetchall()
 
     def count(self, table):
-        allowed = {"participant", "attempt", "response", "scenario"}
+        allowed = {"participant", "attempt", "response", "scenario", "sus_response"}
         if table not in allowed:
             raise ValueError(table)
         return self.query(f"SELECT COUNT(*) AS n FROM {table}")[0]["n"]  # nosec B608
@@ -88,6 +88,12 @@ class AppTestCase(unittest.TestCase):
 
     def answer_posttest(self, correct=True, client=None):
         self.answer_pattern("/assessment/post", [correct] * 12, client)
+
+    def survey_data(self, ratings, client=None):
+        """Form data for the SUS survey: q1..q10 plus the CSRF token."""
+        data = {f"q{number}": str(rating) for number, rating in enumerate(ratings, start=1)}
+        data["csrf_token"] = self.token(client)
+        return data
 
     def reach_posttest(self, client=None):
         """Consent, finish the pre-test and the practice phase; returns the random ID."""

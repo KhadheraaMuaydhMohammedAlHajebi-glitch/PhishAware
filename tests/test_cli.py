@@ -32,3 +32,8 @@ class CommandLineTests(AppTestCase):
         for participant_id in participant_ids:
             self.assertNotIn(participant_id, output)
             self.assertNotIn(participant_id[-6:], output)
+        # Once both participants answer the survey, RQ3 reports the mean of 85.0 and 75.0.
+        for (client, _, _), ratings in zip(sessions, ([4, 2, 5, 1, 4, 2, 5, 2, 4, 1], [4, 2] * 5)):
+            client.post("/survey", data=self.survey_data(ratings, client))
+        output = self.app.test_cli_runner().invoke(args=["analytics"]).output
+        self.assertIn("RQ3  Mean SUS score: 80.0", output)
