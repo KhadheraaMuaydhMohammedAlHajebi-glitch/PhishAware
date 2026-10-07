@@ -1,0 +1,78 @@
+{
+  "version": "1.0",
+  "source": "Cue categories adapted from NIST (2021) phishing guidance.",
+  "lessons": [
+    {
+      "cue": "sender_spoofing",
+      "title": "Check who really sent it",
+      "summary": "Display names are easy to fake. What matters is the domain after the @ sign.",
+      "look_for": [
+        "Swapped characters, such as l for i or 0 for o",
+        "Extra words or hyphens, such as northbridge-admin",
+        "A Reply-To address that differs from the sender"
+      ],
+      "example": "it-services@northbrldge.example is not it-services@northbridge.example",
+      "safe_action": "Compare the full domain with one you know is genuine."
+    },
+    {
+      "cue": "deceptive_links",
+      "title": "Look before you click",
+      "summary": "Link text can say anything. Check the real destination and read its domain from right to left.",
+      "look_for": [
+        "Link text that differs from the real destination",
+        "Brand names used as a label in front of another domain",
+        "http:// rather than https:// on a sign-in page"
+      ],
+      "example": "northbridge.example.grade-portal.test belongs to grade-portal.test",
+      "safe_action": "Open important sites from a bookmark or by typing the address."
+    },
+    {
+      "cue": "urgency_threats",
+      "title": "Slow down when you are rushed",
+      "summary": "Attackers create panic so you act before you think. Genuine organizations give reasonable notice.",
+      "look_for": [
+        "Deadlines measured in hours",
+        "Threats of cancellation, deletion, or fines",
+        "Shouting words such as FINAL NOTICE or URGENT"
+      ],
+      "example": "Your enrollment will be cancelled at 5:00 PM today",
+      "safe_action": "Pause, then verify through a channel you already trust."
+    },
+    {
+      "cue": "unexpected_attachments",
+      "title": "Question surprise files",
+      "summary": "Attachments you did not expect are one of the most common ways to deliver malware.",
+      "look_for": [
+        "Invoices or labels from companies you do not use",
+        "Risky types: .zip, .html, .exe, or macro-enabled documents",
+        "Pressure to open the file quickly"
+      ],
+      "example": "Invoice_88213.zip from a bank you have never used",
+      "safe_action": "Open only expected files; when unsure, ask the sender another way."
+    },
+    {
+      "cue": "credential_requests",
+      "title": "Never share secrets",
+      "summary": "No genuine organization asks for your password or one-time code by email, chat, or phone.",
+      "look_for": [
+        "Requests to reply with a username and password",
+        "Requests to forward a verification code",
+        "Sign-in pages reached from a message or pop-up"
+      ],
+      "example": "Reply with the 6-digit code we sent to your phone",
+      "safe_action": "Keep passwords and codes private and turn on multi-factor authentication."
+    },
+    {
+      "cue": "lookalike_websites",
+      "title": "Verify the address bar",
+      "summary": "A copied logo and a padlock do not make a site genuine. The padlock means the connection is encrypted, not that the owner is trustworthy.",
+      "look_for": [
+        "Domains that add words or hyphens",
+        "Unexpected requests to sign in again",
+        "Arriving from a link instead of a bookmark"
+      ],
+      "example": "learn-northbridge.example is not learn.northbridge.example",
+      "safe_action": "Use bookmarks for important sites and check the domain every time."
+    }
+  ]
+}

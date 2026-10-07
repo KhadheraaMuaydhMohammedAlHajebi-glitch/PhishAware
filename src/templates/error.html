@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% block title %}{{ title }}{% endblock %}
+{% block content %}
+<section class="sheet sheet--narrow">
+  <p class="kicker">Error {{ code }}</p>
+  <h1>{{ title }}</h1>
+  <p class="lead">{{ description or "An unexpected problem occurred. Your answers so far are saved." }}</p>
+  <div class="actions"><a class="btn btn--primary" href="{{ url_for('consent.index') }}">Go to the start page</a></div>
+</section>
+{% endblock %}

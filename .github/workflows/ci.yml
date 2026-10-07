@@ -1,0 +1,44 @@
+# Continuous integration for PhishAware (see the Unit 4 CI/CD Reflection Report).
+# Every push and pull request must pass linting, unit tests, static security
+# analysis, and a dependency audit before it can be merged into develop or main.
+name: CI
+
+on:
+  push:
+    branches: [main, develop, "feature/**"]
+  pull_request:
+    branches: [main, develop]
+
+permissions:
+  contents: read
+
+jobs:
+  quality-gate:
+    name: Lint, test, and security scan
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the code
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.txt
+
+      - name: Lint (flake8)
+        run: flake8 src tests scripts run.py
+
+      - name: Unit tests (pytest)
+        run: pytest -v
+
+      - name: Static security analysis (Bandit)
+        run: bandit -r src -ll
+
+      - name: Dependency vulnerability audit (pip-audit)
+        run: pip-audit -r requirements.txt

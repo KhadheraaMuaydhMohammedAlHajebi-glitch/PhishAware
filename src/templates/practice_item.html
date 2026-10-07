@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% block title %}Practice scenario {{ position }} of {{ total }}{% endblock %}
+{% block content %}
+<div class="workspace">
+  <section class="workspace__main">
+    <h1 class="visually-hidden">Practice scenario {{ position }} of {{ total }}</h1>
+    {% include "_scenario.html" %}
+  </section>
+  <aside class="workspace__side">
+    <div class="panel">
+      <p class="kicker">Practice with instant feedback</p>
+      <p class="counter"><strong>{{ position }}</strong> of {{ total }}</p>
+      <progress value="{{ position - 1 }}" max="{{ total }}">{{ position - 1 }} of {{ total }} answered</progress>
+      <p class="muted">Check the sender's domain, where any link really goes, the tone, and any attachment before you decide.</p>
+      {% include "_decision.html" %}
+    </div>
+  </aside>
+</div>
+{% endblock %}
