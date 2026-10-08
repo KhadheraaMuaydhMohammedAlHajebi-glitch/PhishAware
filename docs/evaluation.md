@@ -11,7 +11,7 @@ This document reports how release 0.6.0 was measured and what the measurements s
 | System under test | The stack that `docs/deployment.md` describes: Caddy 2 for HTTPS, Gunicorn with 2 worker processes x 4 threads, and SQLite in journal mode `delete`, built from commit `04f8f1b` (release candidate 0.6.0) |
 | Software in the image | Python 3.13.16, Flask 3.1.3, Werkzeug 3.1.9, Gunicorn 26.2.0, SQLite 3.46.1 |
 | Test machine | A GitHub-hosted runner: 4 CPUs, 15.6 GB of memory, Ubuntu 24.04.5 LTS, kernel 6.17.0-1022-azure; Docker 28.0.4, Compose 2.38.2 |
-| Run reported | CI run 26 of 8 October 2026 (UTC). Where a range is given, it covers runs 24 to 26, which measured the same application code on other runners of the same type |
+| Run reported | CI run 26 of 8 October 2026 (UTC). The tables report this run. Where a range is given, it covers runs 24 to 29, the six runs that measured this application code, each on a runner of the same type; section 2.7 compares them |
 | Load test | `evaluation/loadtest.py`: complete participant journeys over HTTPS at 1, 5, 10, 25, 50, 100, and 200 concurrent participants, 84 requests per journey, no pause between requests |
 | Browser audit | `evaluation/browser_audit.py`: Chromium 141.0.7390.37 with axe-core 4.10.2; the journey is repeated in Firefox and WebKit |
 | Usability inspection | A heuristic evaluation of all 21 screens at 360 px and 1,280 px against Nielsen's ten usability heuristics, with his severity scale from 0 to 4 |
@@ -36,9 +36,9 @@ NFR-01 requires that an answer is processed within 500 ms and a page is delivere
 | 100 | 180.0 | 252.2 | 500.0 | 179.3 | 309.1 | 3,199 of 3,200 (100.0%) | 4,500 of 4,500 (100.0%) |
 | 200 | 358.9 | 449.7 | 1,565.5 | 356.2 | 657.7 | 6,324 of 6,400 (98.8%) | 9,000 of 9,000 (100.0%) |
 
-At the required load of 25 participants, 95% of answers were processed within 99.3 ms and 95% of pages were delivered within 96.7 ms. All 800 answers and all 1,125 page loads at that level stayed inside their limits. Across runs 24 to 26 the 95th percentile at 25 participants ranged from 79.4 to 99.3 ms for answers and from 91.6 to 100.2 ms for pages.
+At the required load of 25 participants, 95% of answers were processed within 99.3 ms and 95% of pages were delivered within 96.7 ms. In this run all 800 answers and all 1,125 page loads at that level stayed inside their limits. Across runs 24 to 29 the 95th percentile at 25 participants ranged from 79.4 to 107.5 ms for answers and from 91.6 to 104.3 ms for pages.
 
-A percentile does not show how often a single request is slow, so the table also counts the requests inside each limit. The first answer slower than 500 ms appeared at 50 participants. At 200 participants, eight times the required load, 6,324 of 6,400 answers (98.8%) were inside the limit and the 95th percentile was 449.7 ms (430.0 to 487.0 ms across the runs). No page load exceeded 2,000 ms at any level.
+A percentile does not show how often a single request is slow, so the table also counts the requests inside each limit. In this run the first answer slower than 500 ms appeared at 50 participants. At 200 participants, eight times the required load, 6,324 of 6,400 answers (98.8%) were inside the limit and the 95th percentile was 449.7 ms (430.0 to 489.6 ms across the runs). No page load exceeded 2,000 ms at any level. The slowest requests differ from run to run more than the percentiles do; section 2.7 reports them for every run.
 
 ### 2.2 Throughput (NFR-06)
 
@@ -55,7 +55,7 @@ A percentile does not show how often a single request is slow, so the table also
 
 From 5 participants upward the stack served between 540 and 594 requests per second, and none of the 38,220 requests failed. Throughput levels off from 5 participants: the server processes at most eight requests at once (two workers with four threads each), every answer is a database write, and SQLite admits one writer at a time. Additional participants therefore wait longer, which is why the response times in section 2.1 grow with load while throughput stays level. NFR-06 asks for 50 pilot users; the stack completed 200 concurrent journeys without an error.
 
-**Journal mode.** The image ships SQLite 3.46.1, which has the WAL-reset bug that SQLite's documentation describes, so the default setting `AUTO` selects the rollback journal. The last column repeats the test with write-ahead logging forced on: 748 to 775 requests per second, about 36% more, and a 95th percentile of 47.0 ms for answers at 25 participants instead of 99.3 ms. The cautious default costs throughput and still meets NFR-01 with a wide margin, so it stays. `AUTO` will select write-ahead logging by itself once the image contains a fixed SQLite.
+**Journal mode.** The image ships SQLite 3.46.1, which has the WAL-reset bug that SQLite's documentation describes, so the default setting `AUTO` selects the rollback journal. The last column repeats the test with write-ahead logging forced on: 748 to 775 requests per second, about 36% more, and a 95th percentile of 47.0 ms for answers at 25 participants instead of 99.3 ms. Across the six runs the gain ranged from 32% to 92%. Write-ahead logging also removes most of the slow answers: 7 of 87,360 answers took longer than 500 ms over all levels of all runs, all at 200 participants, against 1,097 of 87,360 with the rollback journal. The cautious default costs throughput and slow answers under heavy load, and it still meets the budgets of NFR-01 with a wide margin, so it stays. `AUTO` will select write-ahead logging by itself once the image contains a fixed SQLite.
 
 ### 2.3 Accuracy of reported results (FR-08, FR-09, FR-11)
 
@@ -86,7 +86,7 @@ The load test times requests. A participant experiences something else: the time
 | Emulated slow 4G | Submit to next screen | 35 | 1,198 | 1,759 | 1,763 |
 | Emulated slow 4G | All navigations | 53 | 1,188 | 1,231 | 1,763 |
 
-Without throttling, 95% of navigations finished within 27 ms. On the emulated slow connection, opening a screen took 612 ms at the median, and submitting a form and receiving the next screen took 1,198 ms at the median and 1,759 ms at the 95th percentile (1,759 to 1,769 ms across the runs), inside the 2,000 ms limit. This is the tightest margin in the evaluation. A submission costs two round trips, because the server answers a form with a redirect (Post/Redirect/Get), and the last answer of an assessment costs three. The first visit transfers 8.2 kB in 3 requests; later screens average 1.67 requests, because static files carry a content fingerprint and are cached.
+Without throttling, 95% of navigations finished within 27 ms. On the emulated slow connection, opening a screen took 612 ms at the median, and submitting a form and receiving the next screen took 1,198 ms at the median and 1,759 ms at the 95th percentile (1,741 to 1,769 ms across the runs), inside the 2,000 ms limit. This is the tightest margin in the evaluation. A submission costs two round trips, because the server answers a form with a redirect (Post/Redirect/Get), and the last answer of an assessment costs three. The first visit transfers 8.2 kB in 3 requests; later screens average 1.67 requests, because static files carry a content fingerprint and are cached.
 
 ### 2.6 Tests, static analysis, and recovery (NFR-05, NFR-09, NFR-12)
 
@@ -101,6 +101,25 @@ Without throttling, 95% of navigations finished within 27 ms. On the emulated sl
 | Restore rehearsal on the running stack | Services stopped after 1 s. Backup restored after 1 s. All services healthy again after 12 s. The site failed 5 health request(s); it was unavailable for at most 1.4 seconds. |
 
 The restore rehearsal stops the web service and the jobs service, restores the newest encrypted backup, and starts both again, while a probe requests the health endpoint about five times a second. The time for which the site did not answer is also the time a participant would wait during an upgrade, because an upgrade recreates the same two services.
+
+### 2.7 Variation between runs
+
+The pipeline repeats the measurements on every push, so the same application code was measured six times on 8 October 2026, each time on a freshly started hosted runner. Every run passed every budget and every check. The runs differ in the slowest requests.
+
+| Run | Commit | Answers at 25: 95th percentile (ms) | Pages at 25: 95th percentile (ms) | Answers at 25 within 500 ms | Lowest level with an answer over 500 ms | Answers at 200 within 500 ms | Page loads over 2,000 ms, all levels | Requests per second, 5 to 200 participants | Slow 4G, submit to next screen: 95th percentile (ms) | Longest outage in the restore rehearsal (s) |
+|---|---|---|---|---|---|---|---|---|---|---|
+| 24 | `2688878` | 79.4 | 91.6 | 800 of 800 | 10 participants | 6,360 of 6,400 (99.4%) | 0 | 552 to 577 | 1,760 | 1.3 |
+| 25 | `99888be` | 91.0 | 100.2 | 800 of 800 | 50 participants | 6,173 of 6,400 (96.5%) | 0 | 499 to 519 | 1,769 | 1.5 |
+| 26 (reported) | `04f8f1b` | 99.3 | 96.7 | 800 of 800 | 50 participants | 6,324 of 6,400 (98.8%) | 0 | 540 to 594 | 1,759 | 1.4 |
+| 27 | `7250fee` | 107.5 | 104.3 | 799 of 800 | 25 participants | 6,214 of 6,400 (97.1%) | 0 | 539 to 561 | 1,741 | 1.8 |
+| 28 | `4beb207` | 92.4 | 99.7 | 800 of 800 | 50 participants | 6,279 of 6,400 (98.1%) | 0 | 511 to 525 | 1,760 | 2.2 |
+| 29 | `652c17f` | 93.1 | 95.6 | 800 of 800 | 10 participants | 6,115 of 6,400 (95.5%) | 36 | 330 to 600 | 1,768 | 2.0 |
+
+- **Budgets.** The gate compares the 95th percentile at 25 participants with the limits of NFR-01. Every run met it: the limit was more than 4.6 times the measured value for answers and 19 times for pages.
+- **Single slow answers.** Over the six runs, 4,799 of 4,800 answers at 25 participants were processed within 500 ms and all 6,750 page loads at that level within 2,000 ms. The exception was one answer in run 27, which took 858 ms. Single answers above 500 ms appeared from 10 participants upward in some runs and not before 50 in others. Over all levels, 86,263 of 87,360 answers (98.7%) and 122,814 of 122,850 page loads were inside their limits; the 36 slow page loads all occurred in run 29 at 200 participants.
+- **Reading of the requirement.** NFR-01 does not name a percentile. Measured at the 95th percentile, it is met in every run. Read as a limit on every single request, it was missed by one answer at the required load.
+- **Cause.** The slow answers have not been traced to a cause. They almost disappear with write-ahead logging (section 2.2), which suggests that they are waits for the database's write lock, but that has not been verified. The load generator also shares the processor with the stack (section 5).
+- **What did not vary.** None of the 229,320 requests in the six runs failed, and 87,396 of 87,396 reported values matched the independent calculation. The accessibility audit gave the same result in every run. The time for which the site did not answer during the restore rehearsal was at most 2.2 seconds.
 
 ## 3. Qualitative results
 
@@ -177,7 +196,7 @@ No finding is rated major or catastrophic. The five open findings are planned fo
 
 | Requirement | Evidence | Result |
 |---|---|---|
-| NFR-01 Performance: answers within 0.5 s and pages within 2 s for 25 concurrent users | 95th percentile at 25 participants: 99.3 ms for answers, 96.7 ms for pages; page load on a slow connection 1,759 ms at the 95th percentile | Met |
+| NFR-01 Performance: answers within 0.5 s and pages within 2 s for 25 concurrent users | 95th percentile at 25 participants: 99.3 ms for answers, 96.7 ms for pages (79.4 to 107.5 ms and 91.6 to 104.3 ms across six runs); 4,799 of 4,800 answers at that load within the limit; page load on a slow connection 1,759 ms at the 95th percentile | Met at the 95th percentile |
 | NFR-02 Usability: completion within 30 minutes; SUS of at least 68 | Needs participants. Inspection: five open findings, none above minor | Not yet measured |
 | NFR-03 Accessibility: core WCAG 2.1 AA checks | 0 axe-core violations; 1,915 scripted checks, none failed; keyboard-only journey completed | Met for the automated checks |
 | NFR-04 Portability: current browsers at 360 to 1,920 px | Journey completed in Chromium, Firefox, and WebKit; no layout failure | Met |
@@ -189,7 +208,7 @@ No finding is rated major or catastrophic. The five open findings are planned fo
 
 - **No participants.** The measurements show that the system works, responds in time, and computes its results correctly. They do not show that it teaches anything.
 - **One machine.** The load generator ran on the same runner as the stack, so both shared four processor cores, and no real network lay between them. A separate client would leave the server more processor time and add network delay. A host with fewer cores has not been measured.
-- **Shared hardware.** GitHub-hosted runners are virtual machines on shared hosts, so timings vary from run to run; the ranges above show by how much.
+- **Shared hardware.** GitHub-hosted runners are virtual machines on shared hosts, so timings vary from run to run; section 2.7 shows by how much.
 - **No think time.** Simulated participants answer at once. The levels are therefore harder than the same number of people, and the results do not predict behaviour over a long session.
 - **Short runs.** A level lasts seconds, not hours. The test does not show memory growth or behaviour as the database grows over weeks.
 - **One evaluator.** See section 3.3.
