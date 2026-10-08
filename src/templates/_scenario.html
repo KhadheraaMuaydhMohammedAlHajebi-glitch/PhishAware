@@ -1,4 +1,21 @@
-{# Renders one fictional scenario. Links and form fields are inert by design. #}
+{# Renders one fictional scenario. Links and form fields are inert by design.
+
+   Addresses are the cue under test, so they are never left to wrap at random:
+   each label of a host is unbreakable (see modules/display.py). The macros are
+   written without spaces between tags because a space would become a place
+   where the line may break. Visually hidden words such as "Link:" tell
+   screen-reader users what a sighted reader sees from the styling. #}
+{%- macro host(labels, suffix='') -%}
+<span class="host">{% for label in labels %}{% if not loop.first %}<wbr>{% endif %}<span class="host__label">{{ label }}{% if loop.last %}{{ suffix }}{% endif %}</span>{% endfor %}</span>
+{%- endmacro -%}
+{%- macro address(value, prefix='', suffix='') -%}
+{%- set parts = value|address_parts -%}
+{%- if parts -%}{{ prefix }}{{ parts.local }}<wbr>{{ host(parts.labels, suffix) }}{%- else -%}{{ prefix }}{{ value }}{{ suffix }}{%- endif -%}
+{%- endmacro -%}
+{%- macro url(value) -%}
+{%- set parts = value|url_parts -%}
+{%- if parts -%}{{ parts.scheme }}<wbr>{{ host(parts.labels) }}<wbr>{{ parts.rest }}{%- else -%}{{ value }}{%- endif -%}
+{%- endmacro -%}
 <article class="scenario" aria-label="{{ 'Email message' if scenario.channel == 'email' else 'Web page' }}">
   {% if scenario.context %}
   <p class="scenario__context">{{ scenario.context }}</p>
@@ -9,9 +26,9 @@
     <div class="email__head">
       <h2 class="email__subject">{{ e.subject }}</h2>
       <dl class="email__meta">
-        <div><dt>From</dt><dd><strong>{{ e.from_name }}</strong> <span class="addr">&lt;{{ e.from_address }}&gt;</span></dd></div>
-        {% if e.reply_to %}<div><dt>Reply-To</dt><dd><span class="addr">{{ e.reply_to }}</span></dd></div>{% endif %}
-        <div><dt>To</dt><dd><span class="addr">{{ e.to }}</span></dd></div>
+        <div><dt>From</dt><dd><strong>{{ e.from_name }}</strong> <span class="addr">{{ address(e.from_address, '<', '>') }}</span></dd></div>
+        {% if e.reply_to %}<div><dt>Reply-To</dt><dd><span class="addr">{{ address(e.reply_to) }}</span></dd></div>{% endif %}
+        <div><dt>To</dt><dd><span class="addr">{{ address(e.to) }}</span></dd></div>
         <div><dt>Date</dt><dd>{{ e.date }}</dd></div>
       </dl>
     </div>
@@ -28,10 +45,10 @@
     <div class="email__body">
       {% for paragraph in e.body %}<p>{{ paragraph }}</p>{% endfor %}
       {% if e.link %}
-      <p><span class="fake-link" aria-disabled="true">{{ e.link.text }}</span></p>
+      <p><span class="fake-link"><span class="visually-hidden">Link: </span>{{ url(e.link.text) }}</span></p>
       <details class="link-preview"{% if reveal %} open{% endif %}>
         <summary>Show where this link really goes</summary>
-        <code>{{ e.link.href }}</code>
+        <code>{{ url(e.link.href) }}</code>
       </details>
       {% endif %}
     </div>
@@ -42,12 +59,13 @@
     <div class="browser__bar">
       <span class="browser__dots" aria-hidden="true"><i></i><i></i><i></i></span>
       <div class="browser__address {{ 'is-secure' if w.secure else 'is-insecure' }}">
+        <span class="visually-hidden">Address bar: </span>
         {% if w.secure %}
         <svg viewBox="0 0 24 24" width="15" height="15" aria-label="Encrypted connection" role="img"><rect x="5" y="10.5" width="14" height="10" rx="2" fill="currentColor"/><path d="M8 10.5V8a4 4 0 0 1 8 0v2.5" fill="none" stroke="currentColor" stroke-width="2"/></svg>
         {% else %}
         <span class="browser__warn">Not secure</span>
         {% endif %}
-        <span class="browser__url">{{ w.url }}</span>
+        <span class="browser__url">{{ url(w.url) }}</span>
       </div>
     </div>
     <div class="browser__page">
@@ -55,9 +73,9 @@
       <h2 class="site-title">{{ w.heading }}</h2>
       {% for paragraph in w.body %}<p>{{ paragraph }}</p>{% endfor %}
       {% for field in w.fields %}
-      <div class="fake-field"><span class="fake-field__label">{{ field }}</span><span class="fake-field__box" aria-hidden="true"></span></div>
+      <div class="fake-field"><span class="fake-field__label"><span class="visually-hidden">Text field: </span>{{ field }}</span><span class="fake-field__box" aria-hidden="true"></span></div>
       {% endfor %}
-      {% if w.button %}<span class="fake-button" aria-disabled="true">{{ w.button }}</span>{% endif %}
+      {% if w.button %}<span class="fake-button"><span class="visually-hidden">Button: </span>{{ w.button }}</span>{% endif %}
       <p class="mock-note">This page is an illustration. Nothing on it can be typed into or submitted.</p>
     </div>
   </div>

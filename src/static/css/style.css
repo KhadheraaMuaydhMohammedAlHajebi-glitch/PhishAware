@@ -10,6 +10,7 @@
   --text: #1f2d3f;
   --muted: #5b6b80;
   --line: #d6dee8;
+  --edge: #6b7a8f;
   --mist: #eef2f6;
   --paper: #ffffff;
   --teal: #0b7a75;
@@ -77,11 +78,6 @@ code { font-family: var(--mono); font-size: 0.92em; }
 .btn--danger { background: var(--hook); color: #fff; }
 .btn--sm { padding: 8px 14px; font-size: 0.93rem; }
 .btn--block { width: 100%; margin-top: 18px; }
-.btn--phish, .btn--legit { flex: 1; padding: 14px 10px; font-size: 1.05rem; color: #fff; }
-.btn--phish { background: var(--hook); }
-.btn--phish:hover { background: var(--hook-dark); }
-.btn--legit { background: var(--teal); }
-.btn--legit:hover { background: var(--teal-dark); }
 .is-submitting .btn { opacity: 0.7; cursor: progress; }
 .actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 20px; }
 
@@ -130,26 +126,36 @@ progress::-moz-progress-bar { background: var(--teal); }
 .panel p { margin: 0 0 8px; }
 .counter { margin: 0; color: var(--muted); }
 .counter strong { font-family: var(--serif); font-size: 2.1rem; color: var(--ink); }
-.decision__prompt { font-weight: 700; color: var(--ink); margin: 16px 0 10px; }
-.decision__buttons { display: flex; gap: 10px; }
+/* The decision: choose, then confirm. A slip can be corrected before it counts. */
+.decision__choices { margin: 16px 0 0; padding: 0; border: 0; min-width: 0; }
+.decision__prompt { margin: 0 0 10px; padding: 0; font-weight: 700; color: var(--ink); }
+.choice { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; padding: 12px 14px; border: 2px solid var(--edge); border-radius: 8px; background: var(--paper); color: var(--ink); font-size: 1.05rem; font-weight: 700; cursor: pointer; }
+.choice:has(input:checked) { background: var(--teal-tint); border-color: var(--teal-dark); }
+.choice input { flex: none; width: 20px; height: 20px; margin: 0; accent-color: var(--teal); }
+.decision .btn--block { margin-top: 8px; }
+.decision__note { margin: 10px 0 0; font-size: 0.86rem; color: var(--muted); }
 
 /* Specimen: email */
 .scenario__context { margin: 0 0 12px; padding: 10px 14px; border-radius: 8px; background: var(--note); color: var(--note-ink); font-weight: 600; font-size: 0.96rem; }
 .email, .browser { background: var(--paper); border: 1px solid var(--line); border-radius: 14px; overflow: hidden; box-shadow: 0 14px 34px -18px rgba(16, 33, 58, 0.45); }
 .email__head { padding: 18px 24px 14px; border-bottom: 1px solid var(--line); }
-.email__subject { font-size: 1.35rem; margin: 0 0 12px; }
+.email__subject { font-size: 1.35rem; margin: 0 0 12px; overflow-wrap: anywhere; }
 .email__meta { margin: 0; display: grid; gap: 3px; font-size: 0.94rem; }
 .email__meta div { display: grid; grid-template-columns: 78px minmax(0, 1fr); gap: 8px; }
 .email__meta dt { color: var(--muted); font-weight: 600; }
 .email__meta dd { margin: 0; overflow-wrap: anywhere; }
 .addr { font-family: var(--mono); font-size: 0.9em; color: var(--ink-soft); }
+/* A host is one unit: it moves to the next line whole, and if it is wider than
+   the line it breaks only before a dot, never inside a label (modules/display.py). */
+.host { display: inline-block; max-width: 100%; }
+.host__label { white-space: nowrap; }
 .attachments { list-style: none; margin: 0; padding: 14px 24px 0; display: flex; flex-wrap: wrap; gap: 10px; }
 .attachment { display: inline-flex; align-items: center; gap: 6px; padding: 6px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--mist); color: var(--ink-soft); }
 .email__body { padding: 16px 24px 20px; }
-.email__body p { margin: 0 0 12px; max-width: 68ch; }
+.email__body p { margin: 0 0 12px; max-width: 68ch; overflow-wrap: anywhere; }
 .fake-link { color: #1d4ed8; font-weight: 600; text-decoration: underline; cursor: not-allowed; }
 .link-preview { margin-top: 4px; font-size: 0.92rem; }
-.link-preview summary { cursor: pointer; color: var(--ink-soft); font-weight: 600; }
+.link-preview summary { padding: 4px 0; cursor: pointer; color: var(--ink-soft); font-weight: 600; }
 .link-preview code { display: block; margin-top: 8px; padding: 9px 12px; border-radius: 8px; background: var(--ink); color: #e3f4f1; overflow-wrap: anywhere; }
 
 /* Specimen: web page */
@@ -163,7 +169,7 @@ progress::-moz-progress-bar { background: var(--teal); }
 .browser__page { padding: 26px 30px 24px; max-width: 540px; }
 .site-brand { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; font-weight: 700; color: var(--ink); }
 .site-brand__crest { width: 30px; height: 30px; display: grid; place-items: center; border-radius: 7px; background: #23395d; color: #fff; font-family: var(--serif); }
-.site-title { font-size: 1.4rem; margin: 0 0 8px; }
+.site-title { font-size: 1.4rem; margin: 0 0 8px; overflow-wrap: anywhere; }
 .browser__page p { margin: 0 0 10px; }
 .fake-field { margin: 12px 0; }
 .fake-field__label { display: block; margin-bottom: 4px; font-size: 0.86rem; font-weight: 700; color: var(--muted); }
@@ -246,6 +252,23 @@ progress::-moz-progress-bar { background: var(--teal); }
 .lesson__example { padding: 8px 10px; border-radius: 7px; background: var(--mist); font-family: var(--mono); font-size: 0.82rem !important; overflow-wrap: anywhere; }
 .lesson__safe { margin-top: auto !important; color: var(--teal-dark); font-weight: 700; }
 .source-note { margin-top: 18px; font-size: 0.85rem; color: var(--muted); }
+
+/* Phones. Addresses get the full width of the card and a smaller monospace size,
+   so that the longest host in the scenario bank (37 characters) fits on one line
+   of a 360 px screen. */
+@media (max-width: 600px) {
+  .page { padding: 20px 16px 28px; }
+  .email__head { padding: 16px 16px 12px; }
+  .email__body { padding: 14px 16px 18px; }
+  .attachments { padding: 12px 16px 0; }
+  .email__meta div { grid-template-columns: 1fr; gap: 0; margin-bottom: 4px; }
+  .addr, .browser__url, .link-preview code { font-size: 0.75rem; }
+  .browser__bar { padding: 8px 10px; }
+  .browser__dots { display: none; }
+  .browser__address { align-items: flex-start; padding: 7px 10px; border-radius: 12px; }
+  .browser__page { padding: 20px 16px; }
+  .panel { padding: 18px 16px; }
+}
 
 @media (max-width: 900px) {
   .workspace { grid-template-columns: 1fr; }

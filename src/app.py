@@ -9,8 +9,8 @@ from flask import Flask, render_template
 from src import __version__, db
 from src.config import ENVIRONMENTS, JOURNAL_MODES, Config
 from src.modules import (
-    admin, analytics, assessment, assets, consent, health, learning, maintenance,
-    practice, results, survey,
+    admin, analytics, assessment, assets, consent, display, health, learning,
+    maintenance, practice, results, survey,
 )
 from src.modules.scoring import CUE_LABELS
 from src.modules.security import (
@@ -49,6 +49,7 @@ def create_app(test_config=None):
     app.before_request(verify_csrf)
     app.after_request(apply_security_headers)
     assets.init_app(app)
+    display.init_app(app)
 
     @app.context_processor
     def inject_template_globals():
