@@ -81,6 +81,7 @@ class ConsentWordingTests(AppTestCase):
 
     def test_form_version_is_shown_and_stored_with_the_consent_record(self):
         self.assertIn("consent form version 1.1", self.page())
+        self.assertIn("your answers and the time of each", self.page())
         self.consent()
         self.assertEqual(
             self.query("SELECT consent_version FROM participant")[0]["consent_version"], "1.1")
@@ -178,6 +179,21 @@ class FinishTests(AppTestCase):
         self.assertEqual(self.count("participant"), 1)
         self.assertEqual(self.count("response"), 30)
         self.assertEqual(self.count("sus_response"), 1)
+
+    def test_copy_of_the_cookie_is_refused_after_finishing(self):
+        self.complete_in_this_browser()
+        copy = self.copy_session()                       # taken while the session was open
+        self.assertEqual(copy.get("/results").status_code, 200)
+        response = self.finish()
+        self.assertEqual(response.headers["Clear-Site-Data"], '"cache", "storage"')
+        for url in ("/dashboard", "/results", "/learn", "/withdraw"):
+            response = copy.get(url)
+            self.assertEqual(response.status_code, 302, url)
+            self.assertIn("/consent", response.headers["Location"], url)
+        self.assertEqual(self.count("session_end"), 1)
+        self.assertEqual(
+            [row["name"] for row in self.query("PRAGMA table_info(session_end)")],
+            ["participant_id"])                          # the fact only, no time
 
     def test_finish_requires_the_security_token(self):
         self.complete_in_this_browser()

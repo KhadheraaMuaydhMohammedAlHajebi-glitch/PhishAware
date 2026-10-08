@@ -1,9 +1,12 @@
 """Shared test fixture: a fresh application and a temporary database per test."""
 
+import base64
 import os
 import re
 import tempfile
 import unittest
+
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 from src.app import create_app
 from src.db import get_db
@@ -11,6 +14,25 @@ from src.db import get_db
 SCENARIO_FIELD = re.compile(r'name="scenario_id" value="([ABP][0-9]{2})"')
 ADMIN_USER = "researcher"
 ADMIN_PASSWORD = "correct-horse-battery-staple"
+BACKUP_MARKER = b"PHISHAWARE-BACKUP-1\n"
+
+
+# The backup format, written out again here so that the tests check the files
+# against the documented format and not against the code that produced them:
+# marker, 12-byte nonce, AES-256-GCM ciphertext with the marker as associated data.
+def new_backup_key():
+    return base64.urlsafe_b64encode(os.urandom(32)).decode()
+
+
+def seal_backup(key, plaintext):
+    nonce = os.urandom(12)
+    cipher = AESGCM(base64.urlsafe_b64decode(key))
+    return BACKUP_MARKER + nonce + cipher.encrypt(nonce, plaintext, BACKUP_MARKER)
+
+
+def open_backup(key, blob):
+    body = blob[len(BACKUP_MARKER):]
+    return AESGCM(base64.urlsafe_b64decode(key)).decrypt(body[:12], body[12:], BACKUP_MARKER)
 
 
 class AppTestCase(unittest.TestCase):
@@ -36,7 +58,7 @@ class AppTestCase(unittest.TestCase):
 
     def count(self, table):
         allowed = {"participant", "attempt", "response", "scenario", "sus_response",
-                   "lesson_view", "admin_user", "admin_login_attempt"}
+                   "lesson_view", "session_end", "admin_user", "admin_login_attempt"}
         if table not in allowed:
             raise ValueError(table)
         return self.query(f"SELECT COUNT(*) AS n FROM {table}")[0]["n"]  # nosec B608
@@ -128,6 +150,14 @@ class AppTestCase(unittest.TestCase):
         if ratings is not None:
             client.post("/survey", data=self.survey_data(ratings, client))
         return participant_id
+
+    def copy_session(self, source=None):
+        """A second browser that holds a copy of the first one's session cookie."""
+        source = source or self.client
+        name = self.app.config["SESSION_COOKIE_NAME"]
+        thief = self.app.test_client()
+        thief.set_cookie(name, source.get_cookie(name).value)
+        return thief
 
     def create_admin(self, username=ADMIN_USER, password=ADMIN_PASSWORD):
         """Create (or update) an administrator through the command-line tool."""

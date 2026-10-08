@@ -31,8 +31,8 @@ from src.modules.scoring import (
     CUE_CATEGORIES, cohort_summary, cue_comparison, describe, score_attempt,
 )
 from src.modules.security import (
-    current_admin, end_admin_session, is_valid_admin_username, require_admin,
-    start_admin_session,
+    current_admin, forget_client_data, is_valid_admin_username, require_admin,
+    sign_out_admin, start_admin_session,
 )
 
 bp = Blueprint("admin", __name__, url_prefix="/admin")
@@ -167,8 +167,8 @@ def login():
 
 @bp.post("/logout")
 def logout():
-    end_admin_session()
-    return redirect(url_for("admin.login_form"))
+    sign_out_admin()
+    return forget_client_data(redirect(url_for("admin.login_form")))
 
 
 @bp.get("")

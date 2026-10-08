@@ -13,13 +13,20 @@ does not depend on a scheduler that somebody has to remember to configure.
 
 A backup is a consistent snapshot taken through SQLite's online backup API, so it
 is safe while participants are using the system. The snapshot is serialized in
-memory and encrypted with Fernet (AES-128 in CBC mode with an HMAC-SHA256
-integrity check) before anything is written, so the backup folder never holds
-readable data. The key comes from PHISHAWARE_BACKUP_KEY and is never stored with
-the backups. A backup holds every record that existed when it was written, so
-backups expire too, after PHISHAWARE_BACKUP_DAYS.
+memory and encrypted with AES-256 in Galois/Counter Mode before anything is
+written, so the backup folder never holds readable data, and a file that was
+altered or truncated is rejected when it is restored. The key comes from
+PHISHAWARE_BACKUP_KEY and is never stored with the backups. A backup holds every
+record that existed when it was written, so backups expire too, after
+PHISHAWARE_BACKUP_DAYS.
+
+File format: the marker below, a random 12-byte nonce, then the ciphertext with
+its 16-byte authentication tag. The marker is also authenticated (associated
+data), so a file cannot be relabelled as another format version.
 """
 
+import base64
+import binascii
 import os
 import re
 import sqlite3
@@ -36,6 +43,16 @@ from src import db, repository
 BACKUP_PATTERN = "phishaware-*.db.enc"
 BACKUP_NAME = re.compile(r"phishaware-(\d{8}T\d{6}Z)\.db\.enc")
 BACKUP_STAMP = "%Y%m%dT%H%M%SZ"
+BACKUP_MARKER = b"PHISHAWARE-BACKUP-1\n"
+KEY_BYTES, NONCE_BYTES, TAG_BYTES = 32, 12, 16
+KEY_HELP = (
+    "Generate a key with:\n"
+    '  python -c "import base64, os; print(base64.urlsafe_b64encode(os.urandom(32)).decode())"'
+)
+UNREADABLE_BACKUP = (
+    "The backup could not be decrypted: the key is wrong or the file was altered. "
+    "The database was not changed."
+)
 # What can go wrong in a maintenance pass without being a programming error:
 # a locked or damaged database, a full or read-only disk, a missing key.
 JOB_ERRORS = (sqlite3.Error, OSError, click.ClickException)
@@ -70,23 +87,43 @@ def purge_expired(days, now=None, dry_run=False):
 
 # Encrypted backups (NFR-05, NFR-11) ---------------------------------------------
 def _cipher():
-    """Build the Fernet cipher from the configured key, or stop with a clear message."""
+    """Build the AES-256-GCM cipher from the configured key, or stop with a clear message."""
     # Imported here so that web workers, which never encrypt, do not load the library.
-    from cryptography.fernet import Fernet
+    from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
     key = current_app.config.get("BACKUP_KEY")
     if not key:
         raise click.ClickException(
-            "PHISHAWARE_BACKUP_KEY is not set, so no backup was written. Generate a key with:\n"
-            '  python -c "from cryptography.fernet import Fernet; '
-            'print(Fernet.generate_key().decode())"'
-        )
+            f"PHISHAWARE_BACKUP_KEY is not set, so no backup was written. {KEY_HELP}")
     try:
-        return Fernet(key)
-    except (ValueError, TypeError) as error:
+        raw = base64.b64decode(key.encode("ascii"), altchars=b"-_", validate=True)
+    except (ValueError, binascii.Error):
+        raw = b""
+    if len(raw) != KEY_BYTES:
         raise click.ClickException(
-            "PHISHAWARE_BACKUP_KEY is not a valid Fernet key."
-        ) from error
+            f"PHISHAWARE_BACKUP_KEY is not a valid key: it must be {KEY_BYTES} random bytes "
+            f"in URL-safe base64. {KEY_HELP}")
+    return AESGCM(raw)
+
+
+def encrypt_snapshot(plaintext):
+    """Encrypt and authenticate a serialized database. A fresh nonce every time."""
+    nonce = os.urandom(NONCE_BYTES)
+    return BACKUP_MARKER + nonce + _cipher().encrypt(nonce, plaintext, BACKUP_MARKER)
+
+
+def decrypt_snapshot(blob):
+    """Return the serialized database, or stop if the file is not authentic."""
+    from cryptography.exceptions import InvalidTag
+
+    cipher = _cipher()
+    header = len(BACKUP_MARKER) + NONCE_BYTES
+    if not blob.startswith(BACKUP_MARKER) or len(blob) < header + TAG_BYTES:
+        raise click.ClickException(UNREADABLE_BACKUP)
+    try:
+        return cipher.decrypt(blob[len(BACKUP_MARKER):header], blob[header:], BACKUP_MARKER)
+    except InvalidTag as error:
+        raise click.ClickException(UNREADABLE_BACKUP) from error
 
 
 def backup_directory():
@@ -99,11 +136,10 @@ def backup_directory():
 
 def create_backup(directory, now=None):
     """Write one encrypted snapshot of the database. Returns its path."""
-    cipher = _cipher()
     snapshot = sqlite3.connect(":memory:")
     try:
         db.get_db().backup(snapshot)
-        token = cipher.encrypt(snapshot.serialize())
+        token = encrypt_snapshot(snapshot.serialize())
     finally:
         snapshot.close()
     directory = Path(directory)
@@ -146,19 +182,10 @@ def restore_backup(path):
     """Decrypt a snapshot, verify it, and copy it over the live database.
 
     The live database is replaced only after the snapshot has passed the
-    authenticity check (Fernet), SQLite's integrity check, and a schema check.
-    Returns the number of participant records restored.
+    authenticity check (the AES-GCM tag), SQLite's integrity check, and a schema
+    check. Returns the number of participant records restored.
     """
-    from cryptography.fernet import InvalidToken
-
-    cipher = _cipher()
-    try:
-        plaintext = cipher.decrypt(Path(path).read_bytes())
-    except InvalidToken as error:
-        raise click.ClickException(
-            "The backup could not be decrypted: the key is wrong or the file was altered. "
-            "The database was not changed."
-        ) from error
+    plaintext = decrypt_snapshot(Path(path).read_bytes())
     snapshot = sqlite3.connect(":memory:")
     try:
         healthy, tables = False, set()

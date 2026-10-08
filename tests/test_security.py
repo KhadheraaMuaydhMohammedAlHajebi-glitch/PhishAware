@@ -1,5 +1,9 @@
 """Security tests for M8 (NFR-08 to NFR-11)."""
 
+import base64
+
+from flask.sessions import SecureCookieSessionInterface
+
 from tests.helpers import AppTestCase
 
 
@@ -34,6 +38,28 @@ class SecurityTests(AppTestCase):
         cookie = response.headers.get("Set-Cookie", "")
         self.assertIn("HttpOnly", cookie)
         self.assertIn("SameSite=Lax", cookie)
+
+    def test_session_cookie_is_signed_with_hmac_sha256(self):
+        self.consent()
+        signature = self.client.get_cookie("session").value.rsplit(".", 1)[1]
+        raw = base64.urlsafe_b64decode(signature + "=" * (-len(signature) % 4))
+        self.assertEqual(len(raw), 32)   # SHA-256 gives 32 bytes; Flask's default SHA-1 gives 20
+
+    def test_cookie_signed_with_the_old_sha1_default_is_refused(self):
+        participant_id = self.consent()
+        legacy = SecureCookieSessionInterface().get_signing_serializer(self.app)
+        forged = self.app.test_client()
+        forged.set_cookie("session", legacy.dumps({"participant_id": participant_id}))
+        response = forged.get("/dashboard")
+        self.assertEqual(response.status_code, 302)
+        self.assertIn("/consent", response.headers["Location"])
+
+    def test_browser_data_is_cleared_only_when_a_session_ends(self):
+        self.assertNotIn("Clear-Site-Data", self.client.get("/consent").headers)
+        self.consent()
+        self.assertNotIn("Clear-Site-Data", self.client.get("/dashboard").headers)
+        response = self.client.post("/withdraw", data={"csrf_token": self.token()})
+        self.assertEqual(response.headers["Clear-Site-Data"], '"cache", "storage"')
 
     def test_unknown_page_returns_safe_404(self):
         response = self.client.get("/does-not-exist")

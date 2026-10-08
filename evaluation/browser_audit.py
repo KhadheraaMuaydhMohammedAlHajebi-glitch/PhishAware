@@ -494,6 +494,10 @@ def format_report(report):
                 lines.append(f"  {kind[:-1] if kind == 'violations' else 'review'}: {rule['id']} "
                              f"({rule['impact']}) on {len(rule['screens'])} screen(s): "
                              f"{rule['help']}")
+                # Name the screens and the first elements, so that a reviewer can
+                # look at exactly what the rule engine could not decide.
+                lines.append(f"    screens: {', '.join(rule['screens'])}")
+                lines.append(f"    elements: {'; '.join(rule['nodes'][:3]) or '-'}")
         lines.append("")
     lines.append(f"  {'Scripted check':<52}{'WCAG':>8}{'checked':>9}{'failed':>8}")
     for check, criterion, label in CHECK_LABELS:

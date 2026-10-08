@@ -157,6 +157,32 @@ class AdminAccessTests(AppTestCase):
         self.assertEqual(response.status_code, 302)
         self.assertEqual(self.client.get("/admin").status_code, 302)
 
+    def test_copy_of_the_cookie_is_refused_after_sign_out(self):
+        self.admin_sign_in()
+        copy = self.copy_session()                       # taken while signed in
+        self.assertEqual(copy.get("/admin").status_code, 200)
+        response = self.client.post("/admin/logout", data={"csrf_token": self.token()})
+        self.assertEqual(response.headers["Clear-Site-Data"], '"cache", "storage"')
+        for url in ("/admin", "/admin/export.csv"):
+            self.assertEqual(copy.get(url).status_code, 302, url)
+
+    def test_sign_out_ends_the_sessions_on_every_device(self):
+        self.admin_sign_in()
+        other_device = self.app.test_client()
+        self.admin_sign_in(client=other_device)
+        self.client.post("/admin/logout", data={"csrf_token": self.token()})
+        response = other_device.get("/admin")
+        self.assertEqual(response.status_code, 302)
+        self.assertIn("/admin/login?expired=1", response.headers["Location"])
+        self.assertEqual(self.admin_sign_in(client=other_device).status_code, 302)
+
+    def test_sign_out_without_a_session_changes_nothing(self):
+        before = self.query("SELECT session_stamp FROM admin_user")[0]["session_stamp"]
+        response = self.client.post("/admin/logout", data={"csrf_token": self.token()})
+        self.assertEqual(response.status_code, 302)
+        after = self.query("SELECT session_stamp FROM admin_user")[0]["session_stamp"]
+        self.assertEqual(before, after)
+
     def test_signed_in_administrator_skips_the_sign_in_form(self):
         self.admin_sign_in()
         response = self.client.get("/admin/login")

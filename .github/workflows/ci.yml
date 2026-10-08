@@ -143,8 +143,8 @@ jobs:
           curl --fail --silent --head --cacert caddy-root.crt https://localhost/consent | tee -a smoke.log
           grep -qi '^strict-transport-security: max-age=31536000' smoke.log
           grep -qi '^content-security-policy: default-src' smoke.log
-          grep -i '^set-cookie: session=' smoke.log | grep -q '; Secure'
-          grep -i '^set-cookie: session=' smoke.log | grep -q '; HttpOnly'
+          grep -i '^set-cookie: __Host-session=' smoke.log | grep -q '; Secure'
+          grep -i '^set-cookie: __Host-session=' smoke.log | grep -q '; HttpOnly'
 
       - name: Check the container's hardening
         run: |
@@ -175,9 +175,11 @@ jobs:
             # A change made after that backup, which the restore must undo.
             docker compose exec -T app flask create-admin --username after-backup \
               --password "$(python3 -c 'import secrets; print(secrets.token_urlsafe(18))')"
+            stopped=$SECONDS
             docker compose stop app jobs
             docker compose run --rm --no-deps -T app flask restore-db "$backup" --yes
             docker compose up --detach --wait --wait-timeout 120
+            echo "The services were down for $((SECONDS - stopped)) seconds."
             docker compose exec -T app python -c "import sqlite3; print('Administrator accounts after the restore:', sqlite3.connect('/data/phishaware.db').execute('SELECT COUNT(*) FROM admin_user').fetchone()[0])"
           } 2>&1 | tee restore.log
           grep -q "Database restored from /data/backups/phishaware-" restore.log

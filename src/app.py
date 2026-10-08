@@ -14,8 +14,8 @@ from src.modules import (
 )
 from src.modules.scoring import CUE_LABELS
 from src.modules.security import (
-    apply_security_headers, current_admin, current_participant, get_csrf_token,
-    verify_csrf,
+    Sha256SessionInterface, apply_security_headers, current_admin, current_participant,
+    get_csrf_token, verify_csrf,
 )
 
 MIN_SECRET_LENGTH = 32
@@ -44,6 +44,7 @@ def create_app(test_config=None):
     if test_config:
         app.config.update(test_config)
     finalise_config(app)
+    app.session_interface = Sha256SessionInterface()
     Path(app.config["DATABASE"]).parent.mkdir(parents=True, exist_ok=True)
 
     db.init_app(app)
@@ -113,6 +114,12 @@ def finalise_config(app):
         raise RuntimeError("PhishAware cannot start: " + "; ".join(problems) + ".")
     if not config.get("SECRET_KEY"):
         config["SECRET_KEY"] = secrets.token_hex(32)  # development convenience only
+    # Browsers accept a "__Host-" cookie only over HTTPS, for the whole site, and
+    # from this exact host, so a neighbouring subdomain cannot plant or overwrite
+    # it (OWASP ASVS 5.0 requirements 3.3.1 and 3.3.3). The prefix needs the
+    # Secure attribute, so plain-HTTP development keeps the ordinary name.
+    config["SESSION_COOKIE_NAME"] = (
+        "__Host-session" if config["SESSION_COOKIE_SECURE"] else "session")
 
 
 def _register_error_handlers(app):

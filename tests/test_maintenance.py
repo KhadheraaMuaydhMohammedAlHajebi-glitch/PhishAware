@@ -5,6 +5,7 @@ backup folder. White-box tests fix the clock to check both retention boundaries
 (records and backups) and replace the timer to check the repeating job.
 """
 
+import base64
 import os
 import re
 import sqlite3
@@ -14,11 +15,12 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest import mock
 
-from cryptography.fernet import Fernet
+from cryptography.exceptions import InvalidTag
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 from src.db import get_db
 from src.modules import maintenance
-from tests.helpers import AppTestCase
+from tests.helpers import BACKUP_MARKER, AppTestCase, new_backup_key, open_backup, seal_backup
 
 SUS = [4, 2, 5, 1, 4, 2, 5, 2, 4, 1]
 NOON = datetime(2026, 10, 8, 12, 0, 0, tzinfo=timezone.utc)
@@ -50,7 +52,21 @@ class RetentionTests(AppTestCase):
         self.assertEqual(self.count("attempt"), 3)       # pre, practice, and post of one person
         self.assertEqual(self.count("response"), 30)     # 12 + 6 + 12 answers
         self.assertEqual(self.count("sus_response"), 1)
+        self.assertEqual(self.count("lesson_view"), 1)
         self.assertEqual(self.count("scenario"), 30)     # the scenario bank is untouched
+
+    def test_expired_participant_who_finished_leaves_no_trace(self):
+        client = self.app.test_client()
+        participant_id = self.reach_posttest(client)
+        self.answer_posttest(client=client)
+        client.post("/survey", data=self.survey_data(SUS, client))
+        client.post("/finish", data={"csrf_token": self.token(client)})
+        self.assertEqual(self.count("session_end"), 1)
+        self.age(participant_id, 91)
+        self.purge()
+        for table in ("participant", "attempt", "response", "sus_response", "lesson_view",
+                      "session_end"):
+            self.assertEqual(self.count(table), 0, table)
 
     def test_record_exactly_at_the_cutoff_is_kept_and_one_second_older_is_deleted(self):
         at_cutoff = self.consent()
@@ -93,7 +109,7 @@ class BackupCase(AppTestCase):
 
     def setUp(self):
         super().setUp()
-        self.key = Fernet.generate_key().decode()
+        self.key = new_backup_key()
         self.folder = Path(self._tmp.name) / "backups"
         self.app.config["BACKUP_KEY"] = self.key
         self.app.config["BACKUP_DIR"] = str(self.folder)
@@ -120,11 +136,22 @@ class BackupTests(BackupCase):
         path = self.backup()
         self.assertRegex(path.name, r"^phishaware-\d{8}T\d{6}Z\.db\.enc$")
         stored = path.read_bytes()
+        self.assertTrue(stored.startswith(BACKUP_MARKER))
         self.assertNotIn(b"SQLite format 3", stored)
         self.assertNotIn(participant_id.encode(), stored)
-        plain = Fernet(self.key).decrypt(stored)
+        plain = open_backup(self.key, stored)
         self.assertTrue(plain.startswith(b"SQLite format 3\x00"))
         self.assertIn(participant_id.encode(), plain)
+        # Marker, 12-byte nonce, and 16-byte tag are the only overhead.
+        self.assertEqual(len(stored), len(BACKUP_MARKER) + 12 + len(plain) + 16)
+
+    def test_two_backups_of_the_same_data_share_no_nonce_and_no_ciphertext(self):
+        first = self.write_backup(NOON).read_bytes()
+        second = self.write_backup(NOON + timedelta(seconds=1)).read_bytes()
+        start = len(BACKUP_MARKER)
+        self.assertNotEqual(first[start:start + 12], second[start:start + 12])
+        self.assertNotEqual(first[start + 12:start + 76], second[start + 12:start + 76])
+        self.assertEqual(open_backup(self.key, first), open_backup(self.key, second))
 
     @unittest.skipIf(os.name == "nt", "POSIX file permissions")
     def test_backup_file_is_readable_by_its_owner_only(self):
@@ -139,10 +166,14 @@ class BackupTests(BackupCase):
         self.assertFalse(self.folder.exists())
 
     def test_malformed_key_is_reported(self):
-        self.app.config["BACKUP_KEY"] = "not-a-fernet-key"
-        result = self.run_command("backup-db")
-        self.assertEqual(result.exit_code, 1)
-        self.assertIn("not a valid Fernet key", result.output)
+        too_short = new_backup_key()[:22] + "=="               # 16 bytes: an AES-128 key
+        not_base64 = "!" + new_backup_key()[1:]
+        for key in ("not-a-key", too_short, not_base64, "clé-secrète"):
+            self.app.config["BACKUP_KEY"] = key
+            result = self.run_command("backup-db")
+            self.assertEqual(result.exit_code, 1, key)
+            self.assertIn("it must be 32 random bytes in URL-safe base64", result.output)
+        self.assertFalse(self.folder.exists())
 
     def test_default_folder_is_beside_the_database(self):
         self.app.config["BACKUP_DIR"] = None
@@ -176,7 +207,7 @@ class BackupTests(BackupCase):
     def test_wrong_key_changes_nothing(self):
         path = self.backup()
         self.consent()
-        self.app.config["BACKUP_KEY"] = Fernet.generate_key().decode()
+        self.app.config["BACKUP_KEY"] = new_backup_key()
         result = self.run_command("restore-db", str(path), "--yes")
         self.assertEqual(result.exit_code, 1)
         self.assertIn("could not be decrypted", result.output)
@@ -185,20 +216,39 @@ class BackupTests(BackupCase):
     def test_altered_backup_is_rejected_and_changes_nothing(self):
         path = self.backup()
         self.consent()
-        stored = bytearray(path.read_bytes())
-        stored[len(stored) // 2] ^= 0x01                      # flip one bit
-        path.write_bytes(bytes(stored))
-        result = self.run_command("restore-db", str(path), "--yes")
-        self.assertEqual(result.exit_code, 1)
-        self.assertIn("the key is wrong or the file was altered", result.output)
+        original = path.read_bytes()
+        flipped = bytearray(original)
+        flipped[len(flipped) // 2] ^= 0x01                    # one bit in the ciphertext
+        damaged = {
+            "one bit flipped": bytes(flipped),
+            "last byte missing": original[:-1],
+            "cut to the header": original[:len(BACKUP_MARKER) + 12],
+            "marker of another version": original.replace(b"BACKUP-1", b"BACKUP-2", 1),
+            "no marker": original[len(BACKUP_MARKER):],
+            "empty": b"",
+        }
+        for name, content in damaged.items():
+            path.write_bytes(content)
+            result = self.run_command("restore-db", str(path), "--yes")
+            self.assertEqual(result.exit_code, 1, name)
+            self.assertIn("the key is wrong or the file was altered", result.output, name)
         self.assertEqual(self.count("participant"), 1)
+
+    def test_marker_is_authenticated_with_the_data(self):
+        blob = self.write_backup(NOON).read_bytes()
+        nonce, sealed = blob[len(BACKUP_MARKER):][:12], blob[len(BACKUP_MARKER):][12:]
+        cipher = AESGCM(base64.urlsafe_b64decode(self.key))
+        self.assertTrue(
+            cipher.decrypt(nonce, sealed, BACKUP_MARKER).startswith(b"SQLite format 3"))
+        with self.assertRaises(InvalidTag):   # the right key and nonce, another marker
+            cipher.decrypt(nonce, sealed, b"PHISHAWARE-BACKUP-2\n")
 
     def test_encrypted_file_that_is_not_a_database_is_rejected(self):
         self.consent()
         truncated = b"SQLite format 3\x00" + b"\x00" * 200    # a header with no valid pages
         for content in (b"not a database at all", b"", truncated):
             impostor = Path(self._tmp.name) / "impostor.enc"
-            impostor.write_bytes(Fernet(self.key).encrypt(content))
+            impostor.write_bytes(seal_backup(self.key, content))
             result = self.run_command("restore-db", str(impostor), "--yes")
             self.assertEqual(result.exit_code, 1)
             self.assertIn("is not a PhishAware database", result.output)
@@ -301,7 +351,7 @@ class JobTests(BackupCase):
         self.assertFalse(old.exists())
         # The purge ran first, so the new snapshot no longer holds the expired record.
         (snapshot,) = self.folder.glob("*.enc")
-        plain = Fernet(self.key).decrypt(snapshot.read_bytes())
+        plain = open_backup(self.key, snapshot.read_bytes())
         self.assertNotIn(expired.encode(), plain)
         self.assertIn(recent.encode(), plain)
 

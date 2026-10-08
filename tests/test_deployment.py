@@ -11,13 +11,11 @@ import tempfile
 import unittest
 from unittest import mock
 
-from cryptography.fernet import Fernet
-
 from src import __version__, db, repository
 from src.app import create_app
 from src.config import env_flag, env_int
 from src.db import get_db
-from tests.helpers import AppTestCase
+from tests.helpers import AppTestCase, new_backup_key
 
 SUS = [4, 2, 5, 1, 4, 2, 5, 2, 4, 1]
 
@@ -114,16 +112,41 @@ class HealthTests(AppTestCase):
 
 
 class TransportSecurityTests(AppTestCase):
-    def test_https_settings_add_hsts_and_a_secure_cookie(self):
-        self.app.config["SESSION_COOKIE_SECURE"] = True
-        response = self.client.get("/consent")
+    def https_app(self):
+        return create_app({
+            "TESTING": True, "SECRET_KEY": "k" * 32, "SESSION_COOKIE_SECURE": True,
+            "DATABASE": os.path.join(self._tmp.name, "https.db"),
+        })
+
+    def test_https_settings_add_hsts_and_a_host_bound_secure_cookie(self):
+        response = self.https_app().test_client().get("/consent")
         self.assertEqual(response.headers["Strict-Transport-Security"], "max-age=31536000")
-        self.assertIn("Secure", response.headers["Set-Cookie"])
+        cookie = response.headers["Set-Cookie"]
+        # The "__Host-" prefix is honoured only with Secure, Path=/, and no Domain.
+        self.assertTrue(cookie.startswith("__Host-session="), cookie)
+        attributes = [part.strip() for part in cookie.split(";")[1:]]
+        self.assertIn("Secure", attributes)
+        self.assertIn("HttpOnly", attributes)
+        self.assertIn("Path=/", attributes)
+        self.assertFalse([part for part in attributes if part.lower().startswith("domain")])
+
+    def test_a_whole_session_works_with_the_host_bound_cookie(self):
+        app = self.https_app()
+        client = app.test_client()
+        page = client.get("/consent", base_url="https://localhost")
+        token = page.get_data(as_text=True).split('name="csrf_token" value="')[1].split('"')[0]
+        response = client.post("/consent", base_url="https://localhost", data={
+            "adult": "yes", "agree": "yes", "csrf_token": token})
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(
+            client.get("/dashboard", base_url="https://localhost").status_code, 200)
 
     def test_plain_http_development_sends_neither(self):
         response = self.client.get("/consent")
         self.assertNotIn("Strict-Transport-Security", response.headers)
-        self.assertNotIn("Secure", response.headers["Set-Cookie"])
+        cookie = response.headers["Set-Cookie"]
+        self.assertTrue(cookie.startswith("session="), cookie)
+        self.assertNotIn("Secure", cookie)
 
 
 class JournalModeTests(AppTestCase):
@@ -190,7 +213,7 @@ class JournalModeTests(AppTestCase):
         for mode in ("WAL", "DELETE"):
             with self.subTest(mode=mode):
                 app = self.restart(SQLITE_JOURNAL_MODE=mode)
-                app.config["BACKUP_KEY"] = Fernet.generate_key().decode()
+                app.config["BACKUP_KEY"] = new_backup_key()
                 app.config["BACKUP_DIR"] = os.path.join(self._tmp.name, f"backups-{mode}")
                 runner = app.test_cli_runner()
                 self.assertEqual(runner.invoke(args=["backup-db"]).exit_code, 0)
