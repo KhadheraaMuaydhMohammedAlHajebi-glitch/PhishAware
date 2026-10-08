@@ -61,7 +61,12 @@ class Config:
     SCENARIO_FILE = str(BASE_DIR / "data" / "scenarios.json")
     LESSON_FILE = str(BASE_DIR / "data" / "lessons.json")
 
-    CONSENT_VERSION = "1.0"
+    # The version is stored with every consent record. 1.1 added the retention
+    # period, the session time limit, and the optional contact line.
+    CONSENT_VERSION = "1.1"
+    # Whom participants can ask about the study, shown on the consent page when
+    # set, for example "Researcher name, name@example.edu".
+    CONTACT = os.environ.get("PHISHAWARE_CONTACT")
 
     # Session-cookie hardening (NFR-08). Secure is on by default in production;
     # PHISHAWARE_COOKIE_SECURE=0 exists only for a plain-HTTP smoke test.

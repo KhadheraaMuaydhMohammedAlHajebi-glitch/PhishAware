@@ -45,8 +45,11 @@ class NavigationTests(AppTestCase):
         page = self.dashboard()
         self.assertIn("Final 100.0%", page)
         self.assertIn("See your results", page)
+        self.assertNotIn("Finish and sign out", page)     # offered only after the last step
         self.client.post("/survey", data=self.survey_data([4, 2] * 5))
-        self.assertNotIn("See your results", self.dashboard())
+        page = self.dashboard()
+        self.assertNotIn("See your results", page)
+        self.assertIn("Finish and sign out of this browser", page)
 
     def test_lessons_open_after_the_pre_test(self):
         self.consent()

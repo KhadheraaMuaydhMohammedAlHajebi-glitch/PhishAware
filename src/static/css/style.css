@@ -95,6 +95,9 @@ code { font-family: var(--mono); font-size: 0.92em; }
 .consent-form { padding-top: 16px; border-top: 2px solid var(--ink); }
 .check { display: flex; gap: 10px; align-items: flex-start; margin: 10px 0; font-weight: 600; cursor: pointer; }
 .check input { width: 20px; height: 20px; margin-top: 2px; accent-color: var(--teal); }
+.finish { margin-top: 22px; padding-top: 16px; border-top: 1px solid var(--line); }
+.finish__text { margin: 0 0 10px; font-size: 0.95rem; color: var(--muted); }
+.steps + .finish { margin-top: 18px; padding: 16px 20px; border: 1px solid var(--line); border-radius: 12px; background: var(--paper); }
 
 /* Dashboard steps: a real sequence, so numbered */
 .steps { list-style: none; margin: 0; padding: 0; background: var(--paper); border: 1px solid var(--line); border-radius: 12px; }

@@ -4,10 +4,11 @@
 <section class="sheet sheet--narrow">
   <p class="kicker">All six steps complete</p>
   <h1>Thank you for taking part</h1>
-  <p class="lead">Your ratings are saved under your random ID. You can return to your results or the lessons at any time, or simply close this tab.</p>
+  <p class="lead">Your ratings are saved under your random ID. From this browser you can still open your results and the lessons until the session ends, {{ session_hours }} hours after your last activity.</p>
   <div class="actions">
     <a class="btn btn--primary" href="{{ url_for('results.results') }}">See your results</a>
     <a class="btn btn--ghost" href="{{ url_for('consent.dashboard') }}">Back to dashboard</a>
   </div>
+  {% include "_finish.html" %}
 </section>
 {% endblock %}

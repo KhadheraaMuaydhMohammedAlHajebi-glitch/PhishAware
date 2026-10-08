@@ -1,0 +1,6 @@
+{# Ends the session in this browser and keeps the stored answers (shared computers). #}
+<form method="post" action="{{ url_for('consent.finish') }}" class="finish" data-once>
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <p class="finish__text">On a shared computer, finish now so that the next person cannot open your results.</p>
+  <button type="submit" class="btn btn--secondary">Finish and sign out of this browser</button>
+</form>

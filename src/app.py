@@ -67,6 +67,11 @@ def create_app(test_config=None):
             "cue_labels": CUE_LABELS,
             "session_participant": current_participant(),
             "session_admin": current_admin(),
+            # The consent page and the closing pages state these limits, so the
+            # promise shown to participants cannot drift from the configuration.
+            "retention_days": app.config["RETENTION_DAYS"],
+            "backup_days": app.config["BACKUP_RETENTION_DAYS"],
+            "session_hours": int(app.permanent_session_lifetime.total_seconds() // 3600),
         }
 
     _register_error_handlers(app)

@@ -3,7 +3,7 @@
 {% block content %}
 <section class="sheet sheet--narrow">
   <h1>You have withdrawn</h1>
-  <p class="lead">Every record linked to your random ID has been deleted. Thank you for your time.</p>
+  <p class="lead">Every record linked to your random ID has been deleted, and the last encrypted backup copy will be gone within {{ backup_days }} days. Thank you for your time.</p>
   <div class="actions"><a class="btn btn--ghost" href="{{ url_for('consent.consent_form') }}">Return to the start</a></div>
 </section>
 {% endblock %}

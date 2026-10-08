@@ -6,7 +6,7 @@
 {% set post = progress.post %}
 <section class="page-head">
   <h1>Your learning path</h1>
-  <p class="lead">You take Form {{ progress.form_order[0] }} first and Form {{ progress.form_order[1] }} at the end. Work through the steps in order; you can withdraw at any time from the top bar.</p>
+  <p class="lead">You take Form {{ progress.form_order[0] }} first and Form {{ progress.form_order[1] }} at the end. Work through the steps in order. Until you finish, you can withdraw on any page from the top bar.</p>
 </section>
 <ol class="steps">
   <li class="step step--done">
@@ -89,4 +89,7 @@
     {% endif %}
   </li>
 </ol>
+{% if progress.survey_done %}
+{% include "_finish.html" %}
+{% endif %}
 {% endblock %}

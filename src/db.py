@@ -64,6 +64,9 @@ def get_db():
         # SQLite disables foreign keys by default; they are needed for the
         # ON DELETE CASCADE that implements withdrawal (FR-10).
         connection.execute("PRAGMA foreign_keys = ON")
+        # Overwrite deleted rows with zeros, so that a withdrawn or expired
+        # record does not linger in the file's unused pages (FR-10, NFR-12).
+        connection.execute("PRAGMA secure_delete = ON")
         g.db = connection
     return g.db
 
