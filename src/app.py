@@ -19,6 +19,14 @@ from src.modules.security import (
 )
 
 MIN_SECRET_LENGTH = 32
+# Periods that the consent page states or the jobs rely on, with the smallest
+# value each accepts: zero days would delete at once, and a job interval under
+# a minute would keep the database busy.
+PERIOD_SETTINGS = {
+    "RETENTION_DAYS": ("PHISHAWARE_RETENTION_DAYS", 1),
+    "BACKUP_RETENTION_DAYS": ("PHISHAWARE_BACKUP_DAYS", 1),
+    "JOB_INTERVAL": ("PHISHAWARE_JOB_INTERVAL", 60),
+}
 
 ERROR_TITLES = {
     400: "Request not accepted",
@@ -87,6 +95,9 @@ def finalise_config(app):
         problems.append(f"PHISHAWARE_ENV must be one of {', '.join(ENVIRONMENTS)}")
     if config["SQLITE_JOURNAL_MODE"] not in JOURNAL_MODES:
         problems.append(f"PHISHAWARE_SQLITE_JOURNAL must be one of {', '.join(JOURNAL_MODES)}")
+    for setting, (name, minimum) in PERIOD_SETTINGS.items():
+        if config[setting] < minimum:
+            problems.append(f"{name} must be at least {minimum}")
     if config["APP_ENV"] == "production":
         if len(config.get("SECRET_KEY") or "") < MIN_SECRET_LENGTH:
             problems.append(

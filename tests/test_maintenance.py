@@ -1,12 +1,13 @@
 """Tests for the M8 data-protection jobs: retention and encrypted backups.
 
 Black-box tests run the command-line tools and inspect the database and the
-backup folder. Two white-box tests fix the clock to check the retention boundary
-and the pruning of old backups.
+backup folder. White-box tests fix the clock to check both retention boundaries
+(records and backups) and replace the timer to check the repeating job.
 """
 
 import os
 import re
+import sqlite3
 import stat
 import unittest
 from datetime import datetime, timedelta, timezone
@@ -87,7 +88,9 @@ class RetentionTests(AppTestCase):
         self.assertEqual(self.count("participant"), 1)
 
 
-class BackupTests(AppTestCase):
+class BackupCase(AppTestCase):
+    """A fresh application with a backup key and an empty backup folder."""
+
     def setUp(self):
         super().setUp()
         self.key = Fernet.generate_key().decode()
@@ -103,6 +106,15 @@ class BackupTests(AppTestCase):
         self.assertEqual(result.exit_code, 0, result.output)
         return next(self.folder.glob("*.enc"))
 
+    def write_backup(self, when):
+        with self.app.app_context():
+            return maintenance.create_backup(self.folder, now=when)
+
+    def names(self):
+        return sorted(path.name for path in self.folder.iterdir())
+
+
+class BackupTests(BackupCase):
     def test_backup_file_is_encrypted_and_decrypts_to_a_database(self):
         participant_id = self.complete_session(6, 9, SUS)
         path = self.backup()
@@ -196,31 +208,139 @@ class BackupTests(AppTestCase):
         result = self.run_command("restore-db", str(self.folder / "absent.enc"), "--yes")
         self.assertEqual(result.exit_code, 2)
 
-    def test_only_the_newest_backups_are_kept(self):
-        with self.app.app_context():
-            for hour in (9, 10, 11):
-                maintenance.create_backup(self.folder, keep=2, now=NOON.replace(hour=hour))
-        self.assertEqual(
-            sorted(path.name for path in self.folder.glob("*.enc")),
-            ["phishaware-20261008T100000Z.db.enc", "phishaware-20261008T110000Z.db.enc"])
-
     def test_backup_in_the_same_second_is_refused_rather_than_overwritten(self):
         with self.app.app_context():
-            first = maintenance.create_backup(self.folder, keep=8, now=NOON)
+            first = maintenance.create_backup(self.folder, now=NOON)
             original = first.read_bytes()
             with self.assertRaises(FileExistsError):
-                maintenance.create_backup(self.folder, keep=8, now=NOON)
+                maintenance.create_backup(self.folder, now=NOON)
         self.assertEqual(first.read_bytes(), original)
         with mock.patch.object(maintenance, "create_backup", side_effect=FileExistsError):
             result = self.run_command("backup-db")
         self.assertEqual(result.exit_code, 1)
         self.assertIn("already exists", result.output)
 
-    def test_keep_must_be_at_least_one(self):
-        self.assertEqual(self.run_command("backup-db", "--keep", "0").exit_code, 2)
+    def test_backup_name_carries_its_time(self):
+        with self.app.app_context():
+            path = maintenance.create_backup(self.folder, now=NOON)
+        self.assertTrue(re.fullmatch(r"phishaware-20261008T120000Z\.db\.enc", path.name))
+        self.assertEqual(maintenance.backup_time(path), NOON)
+        self.assertIsNone(maintenance.backup_time(self.folder / "phishaware-notes.db.enc"))
+
+
+class BackupExpiryTests(BackupCase):
+    """Backups hold participant records, so they expire as well (NFR-12)."""
+
+    def test_backup_exactly_at_the_cutoff_is_kept_and_one_second_older_is_deleted(self):
+        self.write_backup(NOON - timedelta(days=7, seconds=1))
+        at_cutoff = self.write_backup(NOON - timedelta(days=7))
+        newest = self.write_backup(NOON)
+        self.assertEqual(maintenance.expire_backups(self.folder, 7, now=NOON), 1)
+        self.assertEqual(self.names(), [at_cutoff.name, newest.name])
+
+    def test_expiry_leaves_other_files_alone(self):
+        self.write_backup(NOON - timedelta(days=30))
+        (self.folder / "phishaware-notes.db.enc").write_bytes(b"not written by the job")
+        (self.folder / "README.txt").write_text("keys are kept elsewhere")
+        self.assertEqual(maintenance.expire_backups(self.folder, 7, now=NOON), 1)
+        self.assertEqual(self.names(), ["README.txt", "phishaware-notes.db.enc"])
+
+    def test_dry_run_counts_expired_backups_and_deletes_nothing(self):
+        old = self.write_backup(NOON - timedelta(days=8))
+        self.assertEqual(maintenance.expire_backups(self.folder, 7, now=NOON, dry_run=True), 1)
+        self.assertTrue(old.exists())
+
+    def test_purge_command_deletes_expired_backups_as_well(self):
+        old = self.write_backup(datetime.now(timezone.utc) - timedelta(days=8))
+        result = self.run_command("purge-expired", "--dry-run")
+        self.assertIn("Would delete 1 backup(s) older than 7 days.", result.output)
+        self.assertTrue(old.exists())
+        result = self.run_command("purge-expired")
+        self.assertIn("Deleted 1 backup(s) older than 7 days.", result.output)
+        self.assertFalse(old.exists())
+
+    def test_backup_command_removes_expired_backups(self):
+        self.write_backup(datetime.now(timezone.utc) - timedelta(days=8))
+        result = self.run_command("backup-db")
+        self.assertEqual(result.exit_code, 0, result.output)
+        self.assertIn("Deleted 1 backup(s) older than 7 days.", result.output)
+        self.assertEqual(len(self.names()), 1)
+
+    def test_configured_backup_period_is_used(self):
+        self.app.config["BACKUP_RETENTION_DAYS"] = 2
+        self.write_backup(datetime.now(timezone.utc) - timedelta(days=3))
+        result = self.run_command("purge-expired")
+        self.assertIn("Deleted 1 backup(s) older than 2 days.", result.output)
+        self.assertEqual(self.names(), [])
+
+
+class StopLoop(Exception):
+    """Raised by the replaced timer to end the otherwise endless job loop."""
+
+
+class JobTests(BackupCase):
+    """The repeating job that the "jobs" service runs (flask run-jobs)."""
+
+    def test_one_pass_purges_then_backs_up_then_expires(self):
+        expired = self.complete_session(6, 9, SUS)
+        recent = self.complete_session(7, 10, SUS)
+        now = datetime.now(timezone.utc)
+        with self.app.app_context():
+            get_db().execute(
+                "UPDATE participant SET consented_at = ? WHERE id = ?",
+                ((now - timedelta(days=91)).isoformat(timespec="seconds"), expired))
+            get_db().commit()
+        old = self.write_backup(now - timedelta(days=8))
+        result = self.run_command("run-jobs", "--once")
+        self.assertEqual(result.exit_code, 0, result.output)
+        lines = result.output.splitlines()
+        self.assertTrue(lines[0].startswith("Maintenance pass at 20"))
+        self.assertEqual(lines[1], "Deleted 1 participant record(s) older than 90 days.")
+        self.assertTrue(lines[2].startswith("Encrypted backup written: "))
+        self.assertEqual(lines[3], "Deleted 1 backup(s) older than 7 days.")
+        self.assertFalse(old.exists())
+        # The purge ran first, so the new snapshot no longer holds the expired record.
+        (snapshot,) = self.folder.glob("*.enc")
+        plain = Fernet(self.key).decrypt(snapshot.read_bytes())
+        self.assertNotIn(expired.encode(), plain)
+        self.assertIn(recent.encode(), plain)
+
+    def test_pass_without_a_key_still_purges_and_reports_the_missing_backup(self):
+        self.app.config["BACKUP_KEY"] = None
+        result = self.run_command("run-jobs", "--once")
+        self.assertEqual(result.exit_code, 0, result.output)
+        self.assertIn("Deleted 0 participant record(s) older than 90 days.", result.output)
+        self.assertIn("No backup written: PHISHAWARE_BACKUP_KEY is not set.", result.output)
         self.assertFalse(self.folder.exists())
 
-    def test_backup_name_sorts_by_time(self):
-        with self.app.app_context():
-            path = maintenance.create_backup(self.folder, keep=8, now=NOON)
-        self.assertTrue(re.fullmatch(r"phishaware-20261008T120000Z\.db\.enc", path.name))
+    def test_loop_waits_for_the_configured_interval_between_passes(self):
+        self.app.config["JOB_INTERVAL"] = 3600
+        with mock.patch.object(maintenance.time, "sleep", side_effect=[None, StopLoop]) as sleep:
+            result = self.run_command("run-jobs")
+        self.assertIsInstance(result.exception, StopLoop)
+        self.assertEqual(sleep.call_args_list, [mock.call(3600), mock.call(3600)])
+        self.assertEqual(result.output.count("Maintenance pass at"), 2)
+
+    def test_failed_pass_is_reported_and_the_loop_carries_on(self):
+        outcomes = [sqlite3.OperationalError("database is locked"), ["Second pass succeeded."]]
+        with mock.patch.object(maintenance, "run_jobs", side_effect=outcomes), \
+                mock.patch.object(maintenance.time, "sleep", side_effect=[None, StopLoop]) as sleep:
+            result = self.run_command("run-jobs", "--every", "60")
+        self.assertIsInstance(result.exception, StopLoop)
+        self.assertEqual(sleep.call_args_list, [mock.call(60), mock.call(60)])
+        self.assertIn(
+            "The maintenance pass failed and will be tried again: database is locked",
+            result.output)
+        self.assertIn("Second pass succeeded.", result.output)
+
+    def test_failed_single_pass_exits_with_an_error(self):
+        with mock.patch.object(maintenance, "run_jobs", side_effect=OSError("disk full")):
+            result = self.run_command("run-jobs", "--once")
+        self.assertEqual(result.exit_code, 1)
+        self.assertIn("The maintenance pass failed: disk full", result.output)
+
+    def test_interval_shorter_than_a_minute_is_rejected(self):
+        with mock.patch.object(maintenance.time, "sleep", side_effect=StopLoop) as sleep:
+            result = self.run_command("run-jobs", "--every", "59")
+        self.assertEqual(result.exit_code, 2)
+        sleep.assert_not_called()

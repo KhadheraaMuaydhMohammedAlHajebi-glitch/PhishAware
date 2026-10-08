@@ -22,6 +22,19 @@ def env_flag(name, default):
     return default if value is None else value == "1"
 
 
+def env_int(name, default):
+    """Read a whole-number environment variable; an unreadable value stops the start-up."""
+    value = os.environ.get(name)
+    if not value:
+        return default
+    try:
+        return int(value)
+    except ValueError:
+        raise RuntimeError(
+            f"PhishAware cannot start: {name} must be a whole number, not {value!r}."
+        ) from None
+
+
 class Config:
     """Settings shared by every environment, with development defaults."""
 
@@ -57,12 +70,17 @@ class Config:
     SESSION_COOKIE_SECURE = env_flag("PHISHAWARE_COOKIE_SECURE", APP_ENV == "production")
     PERMANENT_SESSION_LIFETIME = 2 * 60 * 60  # seconds (two hours)
 
-    # Data protection jobs (M8): records older than the retention period are
-    # deleted by "flask purge-expired"; "flask backup-db" writes snapshots that
-    # are encrypted with BACKUP_KEY, which is never stored beside the backups.
-    RETENTION_DAYS = int(os.environ.get("PHISHAWARE_RETENTION_DAYS") or "90")
+    # Data protection jobs (M8). "flask purge-expired" deletes records that are
+    # older than RETENTION_DAYS and backups that are older than
+    # BACKUP_RETENTION_DAYS; the consent page states both periods. "flask
+    # backup-db" writes snapshots encrypted with BACKUP_KEY, which is never
+    # stored beside the backups. "flask run-jobs" repeats both every JOB_INTERVAL
+    # seconds.
+    RETENTION_DAYS = env_int("PHISHAWARE_RETENTION_DAYS", 90)
+    BACKUP_RETENTION_DAYS = env_int("PHISHAWARE_BACKUP_DAYS", 7)
     BACKUP_KEY = os.environ.get("PHISHAWARE_BACKUP_KEY")
     BACKUP_DIR = os.environ.get("PHISHAWARE_BACKUP_DIR")
+    JOB_INTERVAL = env_int("PHISHAWARE_JOB_INTERVAL", 24 * 60 * 60)
 
     # Administrator access (M7, NFR-10): idle sign-out and sign-in rate limit.
     ADMIN_IDLE_TIMEOUT = 15 * 60       # seconds without a request before sign-out

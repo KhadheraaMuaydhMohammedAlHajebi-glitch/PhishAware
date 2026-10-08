@@ -15,7 +15,7 @@ from cryptography.fernet import Fernet
 
 from src import __version__, db, repository
 from src.app import create_app
-from src.config import env_flag
+from src.config import env_flag, env_int
 from src.db import get_db
 from tests.helpers import AppTestCase
 
@@ -55,6 +55,25 @@ class StartupCheckTests(unittest.TestCase):
         message = str(raised.exception)
         self.assertIn("PHISHAWARE_ENV must be one of development, production", message)
         self.assertIn("PHISHAWARE_SQLITE_JOURNAL must be one of AUTO, WAL, DELETE", message)
+
+    def test_periods_shorter_than_their_minimum_are_reported(self):
+        with self.assertRaises(RuntimeError) as raised:
+            self.start(RETENTION_DAYS=0, BACKUP_RETENTION_DAYS=0, JOB_INTERVAL=59)
+        message = str(raised.exception)
+        self.assertIn("PHISHAWARE_RETENTION_DAYS must be at least 1", message)
+        self.assertIn("PHISHAWARE_BACKUP_DAYS must be at least 1", message)
+        self.assertIn("PHISHAWARE_JOB_INTERVAL must be at least 60", message)
+        app = self.start(RETENTION_DAYS=1, BACKUP_RETENTION_DAYS=1, JOB_INTERVAL=60)
+        self.assertEqual(app.config["JOB_INTERVAL"], 60)
+
+    def test_env_int_reads_whole_numbers_and_names_an_unreadable_setting(self):
+        with mock.patch.dict(os.environ, {"DAYS": "30", "EMPTY": "", "WORD": "ninety"}):
+            self.assertEqual(env_int("DAYS", 90), 30)
+            self.assertEqual(env_int("EMPTY", 90), 90)
+            self.assertEqual(env_int("UNSET_NUMBER", 90), 90)
+            with self.assertRaises(RuntimeError) as raised:
+                env_int("WORD", 90)
+        self.assertIn("WORD must be a whole number, not 'ninety'", str(raised.exception))
 
     def test_development_generates_a_different_key_on_every_start(self):
         first = self.start(SECRET_KEY=None).config["SECRET_KEY"]
