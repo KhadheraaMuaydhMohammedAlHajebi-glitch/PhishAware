@@ -21,7 +21,7 @@ ALLOWED_ANSWERS = frozenset({"phishing", "legitimate"})
 SCENARIO_ID = re.compile(r"[ABP][0-9]{2}")
 UUID4 = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}")
 ADMIN_USERNAME = re.compile(r"[a-z0-9][a-z0-9._-]{2,31}")
-ADMIN_SESSION_KEYS = ("admin_user", "admin_seen", "admin_stamp")
+ADMIN_SESSION_KEYS = ("admin_user", "admin_since", "admin_seen", "admin_stamp")
 STATE_CHANGING_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
 CSRF_MESSAGE = (
     "Your security token is missing or has expired. "
@@ -133,7 +133,7 @@ def start_admin_session(account):
     session.clear()
     session.permanent = True
     session["admin_user"] = account["username"]
-    session["admin_seen"] = int(time.time())
+    session["admin_since"] = session["admin_seen"] = int(time.time())
     session["admin_stamp"] = account["session_stamp"]
     get_csrf_token()
 
@@ -161,14 +161,17 @@ def current_admin():
 
     The session is valid only while the account still exists, its stamp has
     not changed since sign-in (it changes with the password and at sign-out),
-    and the last request was within the idle limit (15 minutes by default,
-    NFR-10).
+    the last request was within the idle limit (15 minutes), and the sign-in
+    was within the longest session (8 hours), however active it has been
+    (NFR-10).
     """
     username = session.get("admin_user")
-    seen = session.get("admin_seen")
-    if not isinstance(username, str) or not isinstance(seen, int):
+    since, seen = session.get("admin_since"), session.get("admin_seen")
+    if not isinstance(username, str) or not isinstance(since, int) or not isinstance(seen, int):
         return None
-    if time.time() - seen > current_app.config["ADMIN_IDLE_TIMEOUT"]:
+    now = time.time()
+    config = current_app.config
+    if now - seen > config["ADMIN_IDLE_TIMEOUT"] or now - since > config["ADMIN_MAX_SESSION"]:
         return None
     account = repository.get_admin(username)
     if account is None or account["session_stamp"] != session.get("admin_stamp"):

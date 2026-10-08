@@ -62,6 +62,14 @@ class AdminAccessTests(AppTestCase):
             self.assertIn(admin.FAILED_MESSAGE.encode(), response.data)
         self.assertEqual(self.client.get("/admin").status_code, 302)
 
+    def test_password_is_checked_exactly_as_typed(self):
+        spaced = "  two spaces around, Mixed Case  "
+        self.create_admin(username="exact", password=spaced)
+        for altered in (spaced.strip(), spaced.lower(), spaced[:20]):
+            self.assertEqual(
+                self.admin_sign_in(username="exact", password=altered).status_code, 401)
+        self.assertEqual(self.admin_sign_in(username="exact", password=spaced).status_code, 302)
+
     def test_password_is_stored_only_as_a_salted_hash(self):
         self.create_admin(username="second-admin")
         hashes = [row["password_hash"] for row in self.query(
@@ -139,6 +147,24 @@ class AdminAccessTests(AppTestCase):
         self.assertEqual(self.client.get("/admin").status_code, 200)
         with self.client.session_transaction() as session:
             self.assertGreater(session["admin_seen"], int(time.time()) - 5)
+
+    def test_session_ends_eight_hours_after_sign_in_however_active(self):
+        self.admin_sign_in()
+        with self.client.session_transaction() as session:
+            session["admin_since"] = int(time.time()) - 8 * 3600 + 60   # one minute left
+        self.assertEqual(self.client.get("/admin").status_code, 200)
+        with self.client.session_transaction() as session:
+            session["admin_since"] = int(time.time()) - 8 * 3600 - 1
+            session["admin_seen"] = int(time.time())                    # active a moment ago
+        response = self.client.get("/admin")
+        self.assertEqual(response.status_code, 302)
+        self.assertIn("/admin/login?expired=1", response.headers["Location"])
+
+    def test_session_without_a_sign_in_time_is_refused(self):
+        self.admin_sign_in()
+        with self.client.session_transaction() as session:
+            del session["admin_since"]
+        self.assertEqual(self.client.get("/admin").status_code, 302)
 
     def test_changing_the_password_signs_out_open_sessions(self):
         self.admin_sign_in()

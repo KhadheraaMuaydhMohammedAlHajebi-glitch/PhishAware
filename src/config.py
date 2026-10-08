@@ -92,8 +92,10 @@ class Config:
     # own default (p = 1) is weaker than any setting on that list.
     ADMIN_PASSWORD_METHOD = "scrypt:32768:8:3"
 
-    # Administrator access (M7, NFR-10): idle sign-out and sign-in rate limit.
+    # Administrator access (M7, NFR-10): idle sign-out, a longest session, and
+    # the sign-in rate limit.
     ADMIN_IDLE_TIMEOUT = 15 * 60       # seconds without a request before sign-out
+    ADMIN_MAX_SESSION = 8 * 60 * 60    # seconds after sign-in, however active
     ADMIN_MAX_FAILED_LOGINS = 5        # failed attempts allowed per username ...
     ADMIN_MAX_FAILED_TOTAL = 50        # ... and across all usernames ...
     ADMIN_LOCKOUT_SECONDS = 15 * 60    # ... within this many seconds

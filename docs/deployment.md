@@ -105,6 +105,8 @@ docker compose up -d --wait
 docker compose exec app flask create-admin --username researcher
 ```
 
+Use a generated passphrase of at least 12 characters for the administrator, for example from a password manager. The application does not yet compare a new password with a list of common passwords (`docs/security-checklist.md`, finding S-8).
+
 `docker compose up -d --wait` returns when the application answers its health check and the jobs service has completed its first pass.
 
 ## 6. Verify

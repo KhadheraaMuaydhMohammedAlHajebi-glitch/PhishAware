@@ -146,9 +146,32 @@ jobs:
           grep -i '^set-cookie: __Host-session=' smoke.log | grep -q '; Secure'
           grep -i '^set-cookie: __Host-session=' smoke.log | grep -q '; HttpOnly'
 
+      - name: Check which TLS versions the proxy accepts
+        run: |
+          {
+            for version in tls1_2 tls1_3; do
+              openssl s_client -connect localhost:443 -servername localhost \
+                -CAfile caddy-root.crt "-$version" < /dev/null 2> /dev/null \
+                | grep -E "^New, |Verify return code" | paste -sd ' ' -
+            done
+            # A lowered security level lets this client offer TLS 1.1, so that a
+            # refusal comes from the server and not from the client's own policy.
+            if openssl s_client -connect localhost:443 -servername localhost -tls1_1 \
+                -cipher 'DEFAULT:@SECLEVEL=0' < /dev/null > tls11.log 2>&1; then
+              echo "TLS 1.1 was accepted"
+              exit 1
+            fi
+            echo "TLS 1.1: refused ($(grep -m 1 -oE 'alert [a-z ]+|no protocols available|unknown option' tls11.log || echo 'handshake failed'))"
+          } 2>&1 | tee tls.log
+          grep -q "New, TLSv1.2" tls.log
+          grep -q "New, TLSv1.3" tls.log
+
       - name: Check the container's hardening
         run: |
           test "$(docker compose exec -T app id -u)" = "10001"   # the server is not root
+          # The image holds the application only: no repository data, tests, or settings file.
+          docker compose exec -T app sh -c 'ls -A /app' | paste -sd ' ' - | tee contents.log
+          test "$(cat contents.log)" = "constraints.txt data gunicorn.conf.py requirements-prod.txt requirements.txt src wsgi.py"
           if docker compose exec -T app sh -c 'touch /app/probe' 2> /dev/null; then
             echo "The application code is writable at run time." | tee hardening.log
             exit 1
@@ -191,6 +214,8 @@ jobs:
         if: always()
         run: |
           python3 scripts/ci_summary.py notice "Pinned dependencies" pins.log
+          python3 scripts/ci_summary.py notice "TLS versions" tls.log
+          python3 scripts/ci_summary.py notice "Files in the image" contents.log
           python3 scripts/ci_summary.py notice "Jobs service" jobs.log
           python3 scripts/ci_summary.py notice "Operational commands" commands.log
           python3 scripts/ci_summary.py notice "Restore rehearsal" restore.log
@@ -201,7 +226,7 @@ jobs:
           docker compose ps > ps.log 2>&1 || true
           docker compose logs --no-color --tail 60 > stack.log 2>&1 || true
           python3 scripts/ci_summary.py failure build.log failfast.log up.log smoke.log \
-            hardening.log ps.log stack.log
+            tls.log tls11.log hardening.log ps.log stack.log
 
       - name: Stop the stack
         if: always()
