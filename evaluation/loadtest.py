@@ -356,6 +356,7 @@ def run_level(users, journeys, first_index, args, bank, oracle):
         thread.join()
     seconds = time.perf_counter() - started
     completed = oracle.completed - completed_before
+    limits = {"submit": args.budget_submit_ms, "page": args.budget_page_ms}
     return {
         "users": users,
         "journeys": journeys,
@@ -367,6 +368,10 @@ def run_level(users, journeys, first_index, args, bank, oracle):
         "requests_per_second": round(stats.requests / seconds, 1),
         "journeys_per_minute": round(completed / seconds * 60, 1),
         "latency_ms": {name: summarise(values) for name, values in stats.timings.items()},
+        # How many single requests stayed inside the limit, not only the percentile.
+        "within_limit": {name: [sum(1 for value in stats.timings[name] if value <= limit),
+                                len(stats.timings[name])]
+                         for name, limit in limits.items()},
     }
 
 
@@ -435,6 +440,10 @@ def format_report(report):
             f"  {level['users']:>5}{level['completed']:>10}{level['requests']:>10}"
             f"{level['failed']:>8}{level['seconds']:>9.1f}{level['requests_per_second']:>12.1f}"
             f"{level['journeys_per_minute']:>14.1f}")
+    lines.append(
+        f"  total{sum(level['completed'] for level in report['levels']):>10}"
+        f"{sum(level['requests'] for level in report['levels']):>10}"
+        f"{sum(level['failed'] for level in report['levels']):>8}")
     lines += ["", "Latency in milliseconds",
               f"  {'measure':<21}{'users':>5}{'count':>8}{'median':>9}{'p95':>9}{'p99':>9}"
               f"{'max':>9}"]
@@ -447,6 +456,17 @@ def format_report(report):
                 f"  {label:<21}{level['users']:>5}{stats['count']:>8}{stats['p50']:>9.1f}"
                 f"{stats['p95']:>9.1f}{stats['p99']:>9.1f}{stats['max']:>9.1f}")
             label = ""
+    limits = report["limits_ms"]
+    lines += ["", f"Requests inside the NFR-01 limits (answers <= {limits['submit']:g} ms, "
+              f"pages <= {limits['page']:g} ms)",
+              f"  {'users':>5}{'answers within the limit':>30}{'pages within the limit':>30}"]
+    for level in report["levels"]:
+        cells = []
+        for name in ("submit", "page"):
+            inside, total = level["within_limit"][name]
+            share = f"{inside / total * 100:.1f}%" if total else "n/a"
+            cells.append(f"{inside:,} of {total:,} ({share})")
+        lines.append(f"  {level['users']:>5}{cells[0]:>30}{cells[1]:>30}")
     if report["budget"]:
         lines.append("")
         for check in report["budget"]:
@@ -545,6 +565,7 @@ def main(argv=None):
         "seed": args.seed,
         "think_time_s": args.think_time,
         "requests_per_journey": round(levels[0]["requests"] / max(1, levels[0]["completed"])),
+        "limits_ms": {"submit": args.budget_submit_ms, "page": args.budget_page_ms},
         "levels": levels,
         "budget": budget,
         "accuracy": {"checked": oracle.checked, "matched": oracle.matched,

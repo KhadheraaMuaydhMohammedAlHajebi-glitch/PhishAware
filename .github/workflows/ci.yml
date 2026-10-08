@@ -113,7 +113,10 @@ jobs:
           grep -q "PHISHAWARE_SECRET_KEY must be set" failfast.log
 
       - name: Start the stack and wait until it is healthy
-        run: docker compose up --detach --wait --wait-timeout 120 2>&1 | tee up.log
+        run: |
+          docker compose up --detach --wait --wait-timeout 120 2>&1 | tee up.log
+          docker compose ps --format 'table {{.Service}}\t{{.Image}}\t{{.Status}}\t{{.Ports}}' \
+            | tee services.log
 
       - name: Check that the jobs service has made its first pass
         run: |
@@ -231,6 +234,8 @@ jobs:
       - name: Publish the deployment checks
         if: always()
         run: |
+          python3 scripts/ci_summary.py notice "Running services" services.log
+          python3 scripts/ci_summary.py notice "Smoke test over HTTPS" smoke.log
           python3 scripts/ci_summary.py notice "Pinned dependencies" pins.log
           python3 scripts/ci_summary.py notice "TLS versions" tls.log
           python3 scripts/ci_summary.py notice "Files in the image" contents.log
