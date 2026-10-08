@@ -5,9 +5,10 @@
 # on the oldest supported Python and on the version the container image uses.
 #
 # Job 2, container: the production image is built and started behind its HTTPS
-# reverse proxy exactly as docs/deployment.md describes, and the running stack is
-# smoke-tested. A change is integrated only when the artifact that would be
-# deployed has been built and exercised.
+# reverse proxy exactly as docs/deployment.md describes. The job checks that the
+# image holds the pinned dependencies and nothing else, smoke-tests the running
+# stack, and rehearses the restore procedure. A change is integrated only when
+# the artifact that would be deployed has been built and exercised.
 #
 # Job 3, evaluation: the running stack is measured. A load test reports latency,
 # throughput, and whether every score the system reports is correct; a browser
@@ -49,7 +50,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements-dev.txt
+          pip install -r requirements-dev.txt 2>&1 | tee install.log
 
       - name: Lint (flake8)
         run: flake8 src tests scripts evaluation run.py wsgi.py gunicorn.conf.py
@@ -71,7 +72,7 @@ jobs:
 
       - name: Show the end of each log if a step failed
         if: failure()
-        run: python scripts/ci_summary.py failure pytest.log coverage.txt bandit.txt audit.txt
+        run: python scripts/ci_summary.py failure install.log pytest.log coverage.txt bandit.txt audit.txt
 
   container:
     name: Build the image and smoke-test the HTTPS stack
@@ -95,6 +96,14 @@ jobs:
       - name: Build the image
         run: docker compose build 2>&1 | tee build.log
 
+      - name: Check that the image holds exactly the pinned dependencies
+        run: |
+          export LC_ALL=C
+          docker run --rm phishaware:ci pip freeze | sort > image-freeze.txt
+          grep -v '^#' constraints.txt | sed '/^$/d' | sort > pinned.txt
+          diff pinned.txt image-freeze.txt | tee pins.log
+          echo "The image holds the $(wc -l < pinned.txt) pinned packages and nothing else." | tee -a pins.log
+
       - name: Refuse to start without a secret key (fail-fast configuration)
         run: |
           if docker run --rm phishaware:ci python -c "import wsgi" > failfast.log 2>&1; then
@@ -105,6 +114,18 @@ jobs:
 
       - name: Start the stack and wait until it is healthy
         run: docker compose up --detach --wait --wait-timeout 120 2>&1 | tee up.log
+
+      - name: Check that the jobs service has made its first pass
+        run: |
+          for attempt in $(seq 1 30); do
+            docker compose logs --no-color --no-log-prefix jobs > jobs.log 2>&1 || true
+            grep -q "backup(s) older than" jobs.log && break
+            sleep 1
+          done
+          cat jobs.log
+          grep -q "Deleted 0 participant record(s) older than 90 days." jobs.log
+          grep -q "Encrypted backup written: /data/backups/phishaware-" jobs.log
+          grep -q "Deleted 0 backup(s) older than 7 days." jobs.log
 
       - name: Smoke-test HTTPS through the reverse proxy
         run: |
@@ -146,13 +167,39 @@ jobs:
           grep -q "Administrator 'ci-admin' created." commands.log
           grep -q "Encrypted backup written: /data/backups/phishaware-" commands.log
 
+      - name: Rehearse the restore procedure from docs/deployment.md
+        run: |
+          {
+            backup="$(docker compose exec -T app sh -c 'ls /data/backups/phishaware-*.db.enc | tail -n 1')"
+            echo "Newest backup: $backup"
+            # A change made after that backup, which the restore must undo.
+            docker compose exec -T app flask create-admin --username after-backup \
+              --password "$(python3 -c 'import secrets; print(secrets.token_urlsafe(18))')"
+            docker compose stop app jobs
+            docker compose run --rm --no-deps -T app flask restore-db "$backup" --yes
+            docker compose up --detach --wait --wait-timeout 120
+            docker compose exec -T app python -c "import sqlite3; print('Administrator accounts after the restore:', sqlite3.connect('/data/phishaware.db').execute('SELECT COUNT(*) FROM admin_user').fetchone()[0])"
+          } 2>&1 | tee restore.log
+          grep -q "Database restored from /data/backups/phishaware-" restore.log
+          grep -q "Administrator accounts after the restore: 1" restore.log
+          curl --fail --silent --show-error --retry 15 --retry-delay 1 --retry-all-errors \
+            --cacert caddy-root.crt https://localhost/healthz | grep -q '"status":"ok"'
+
+      - name: Publish the deployment checks
+        if: always()
+        run: |
+          python3 scripts/ci_summary.py notice "Pinned dependencies" pins.log
+          python3 scripts/ci_summary.py notice "Jobs service" jobs.log
+          python3 scripts/ci_summary.py notice "Operational commands" commands.log
+          python3 scripts/ci_summary.py notice "Restore rehearsal" restore.log
+
       - name: Show the end of each log if a step failed
         if: failure()
         run: |
           docker compose ps > ps.log 2>&1 || true
           docker compose logs --no-color --tail 60 > stack.log 2>&1 || true
           python3 scripts/ci_summary.py failure build.log failfast.log up.log smoke.log \
-            hardening.log commands.log ps.log stack.log
+            hardening.log ps.log stack.log
 
       - name: Stop the stack
         if: always()
@@ -173,6 +220,7 @@ jobs:
           {
             echo "PHISHAWARE_ENV=production"
             echo "PHISHAWARE_SECRET_KEY=$(python3 -c 'import secrets; print(secrets.token_hex(32))')"
+            echo "PHISHAWARE_BACKUP_KEY=$(python3 -c 'import base64, os; print(base64.urlsafe_b64encode(os.urandom(32)).decode())')"
             echo "PHISHAWARE_DOMAIN=localhost"
           } > .env
           password="$(python3 -c 'import secrets; print(secrets.token_urlsafe(18))')"
@@ -181,12 +229,15 @@ jobs:
 
       - name: Start the stack and create the evaluator account
         run: |
-          docker compose up --detach --build --wait --wait-timeout 180 2>&1 | tee up.log
+          docker compose build 2>&1 | tee build.log
+          docker compose up --detach --wait --wait-timeout 180 2>&1 | tee up.log
           for attempt in $(seq 1 30); do
             docker compose cp proxy:/data/caddy/pki/authorities/local/root.crt caddy-root.crt \
               > /dev/null 2>&1 && break
             sleep 1
           done
+          curl --fail --silent --show-error --retry 15 --retry-delay 1 --retry-all-errors \
+            --cacert caddy-root.crt --output /dev/null https://localhost/healthz
           docker compose exec -T app flask create-admin --username evaluator \
             --password "$EVALUATOR_PASSWORD"
 
@@ -198,9 +249,10 @@ jobs:
             docker compose exec -T app python -c "import platform, sqlite3, flask, gunicorn, importlib.metadata as m; print('Image: Python', platform.python_version() + ', Flask', m.version('flask') + ', Werkzeug', m.version('werkzeug') + ', Gunicorn', gunicorn.__version__ + ', SQLite', sqlite3.sqlite_version)"
             echo "Proxy: $(docker compose exec -T proxy caddy version)"
             echo "Server: ${WEB_CONCURRENCY:-2} worker processes x ${PHISHAWARE_THREADS:-4} threads"
+            echo "Database: SQLite journal mode $(docker compose exec -T app python -c "import sqlite3; print(sqlite3.connect('/data/phishaware.db').execute('PRAGMA journal_mode').fetchone()[0])") (PHISHAWARE_SQLITE_JOURNAL=AUTO)"
+            echo "Services: $(docker compose ps --format '{{.Service}} ({{.State}})' | paste -sd ' ' -)"
             echo "Image size: $(docker image inspect phishaware:ci --format '{{.Size}}' | awk '{printf "%.1f MB", $1 / 1000000}')"
           } | tee machine.txt
-          docker compose exec -T app pip freeze | tee freeze.txt
 
       - name: Load test - latency, throughput, and result accuracy
         run: |
@@ -213,7 +265,7 @@ jobs:
         if: always()
         run: |
           {
-            for service in app proxy; do
+            for service in app jobs proxy; do
               peak="$(docker compose exec -T "$service" cat /sys/fs/cgroup/memory.peak 2> /dev/null || true)"
               now="$(docker compose exec -T "$service" cat /sys/fs/cgroup/memory.current 2> /dev/null || true)"
               echo "$service container: peak ${peak:-unknown} bytes, now ${now:-unknown} bytes"
@@ -240,6 +292,29 @@ jobs:
             --admin-user evaluator --admin-password "$EVALUATOR_PASSWORD" \
             --markdown "$GITHUB_STEP_SUMMARY" | tee audit.log
 
+      - name: Load test with write-ahead logging, for comparison
+        run: |
+          # The same test against a fresh database in the other journal mode. It
+          # measures what the cautious default costs (see docs/evaluation.md).
+          docker compose down --volumes > /dev/null 2>&1
+          echo "PHISHAWARE_SQLITE_JOURNAL=WAL" >> .env
+          docker compose up --detach --wait --wait-timeout 180 2>&1 | tee up-wal.log
+          for attempt in $(seq 1 30); do
+            docker compose cp proxy:/data/caddy/pki/authorities/local/root.crt caddy-root.crt \
+              > /dev/null 2>&1 && break
+            sleep 1
+          done
+          curl --fail --silent --show-error --retry 15 --retry-delay 1 --retry-all-errors \
+            --cacert caddy-root.crt --output /dev/null https://localhost/healthz
+          docker compose exec -T app flask create-admin --username evaluator \
+            --password "$EVALUATOR_PASSWORD"
+          {
+            echo "Journal mode: $(docker compose exec -T app python -c "import sqlite3; print(sqlite3.connect('/data/phishaware.db').execute('PRAGMA journal_mode').fetchone()[0])") (PHISHAWARE_SQLITE_JOURNAL=WAL)"
+            python3 evaluation/loadtest.py --base-url https://localhost --cacert caddy-root.crt \
+              --levels 1,5,10,25,50,100 --min-journeys 25 \
+              --admin-user evaluator --admin-password "$EVALUATOR_PASSWORD"
+          } | tee loadtest-wal.log
+
       - name: Publish the measurements
         if: always()
         run: |
@@ -247,13 +322,13 @@ jobs:
           python3 scripts/ci_summary.py notice "Load test" loadtest.log
           python3 scripts/ci_summary.py notice "Memory" memory.txt
           python3 scripts/ci_summary.py notice "Browser audit" audit.log
-          python3 scripts/ci_summary.py notice "Resolved dependencies" freeze.txt
+          python3 scripts/ci_summary.py notice "Load test, write-ahead logging" loadtest-wal.log
 
       - name: Show the end of the stack's log if a step failed
         if: failure()
         run: |
           docker compose logs --no-color --tail 60 > stack.log 2>&1 || true
-          python3 scripts/ci_summary.py failure up.log stack.log
+          python3 scripts/ci_summary.py failure build.log up.log up-wal.log stack.log
 
       - name: Stop the stack
         if: always()
