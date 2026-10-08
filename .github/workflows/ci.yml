@@ -340,11 +340,30 @@ jobs:
         with:
           python-version: "3.13"
 
-      - name: Install the browsers and axe-core
+      # Installing the audit's tools was one step, and it stalled in two runs until
+      # the run was cancelled by hand. It is now two steps, so that a stall shows
+      # which part is responsible, and each has its own time limit.
+      - name: Install Playwright, axe-core, and the browsers' system packages
+        timeout-minutes: 8
         run: |
           pip install -r evaluation/requirements.txt
-          python -m playwright install --with-deps chromium firefox webkit
           npm install --no-save --prefix "$RUNNER_TEMP/axe" axe-core@4.10.2
+          python -m playwright install-deps chromium firefox webkit
+
+      - name: Download the browsers
+        timeout-minutes: 12
+        run: |
+          # A download can be repeated safely: a browser that is already complete
+          # is skipped. An attempt that has not finished after three minutes is
+          # stopped and started again, at most three times.
+          for attempt in 1 2 3; do
+            if timeout --kill-after=10 180 python -m playwright install chromium firefox webkit; then
+              exit 0
+            fi
+            echo "::warning title=Browser download::Attempt $attempt did not finish."
+          done
+          echo "::error title=Browser download::The browsers could not be downloaded in three attempts."
+          exit 1
 
       - name: Browser audit - accessibility, layout, and page load
         run: |
