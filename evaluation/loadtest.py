@@ -5,7 +5,8 @@
 
 Every simulated participant completes the whole journey over real HTTP: consent,
 the 12-item pre-assessment, the lessons, six practice scenarios with feedback,
-the 12-item post-assessment, the results page, and the usability survey.
+the 12-item post-assessment, the results page, the usability survey, and the
+Finish step that ends the session.
 
 The script measures three things:
 
@@ -64,6 +65,12 @@ STAT = re.compile(r'<p class="stat__value[^"]*">([+\-]?[0-9.]+)')
 CUE_BARS = re.compile(
     r'aria-label="([^":]+): ([0-9]+)% correct before training, ([0-9]+)% after training"')
 REDIRECTS = (301, 302, 303, 307, 308)
+# The first figures on the administrator's dashboard. Every journey in this test
+# runs to the end, so each count must equal the number of journeys.
+DASHBOARD_COUNTS = (
+    "consented", "finished the pre-assessment", "opened the lessons",
+    "finished both assessments", "finished the survey",
+)
 VALUES_PER_RESULTS_PAGE = 3 + 2 * len(CUES)  # pre, post, and gain; before and after per cue
 VALUES_PER_EXPORT_ROW = 5 + 2 * len(CUES)    # form order, three scores, SUS; cue counts
 
@@ -311,7 +318,11 @@ def run_journey(index, args, bank, stats, oracle):
         html = browser.page("/survey")
         form = {f"q{number}": str(rating) for number, rating in enumerate(plan["ratings"], 1)}
         form["csrf_token"] = CSRF.search(html).group(1)
-        browser.submit("/survey", form)
+        html = browser.submit("/survey", form)
+        status, _headers, payload, _elapsed = browser.send(
+            "POST", "/finish", form={"csrf_token": CSRF.search(html).group(1)})
+        if status != 200 or b"signed out of this browser" not in payload:
+            raise RuntimeError(f"/finish: status {status}; the session was not ended")
         oracle.add_journey(
             [forms["pre"] + forms["post"], pre, post, round(post - pre, 1),
              oracle_sus(plan["ratings"])]
@@ -385,10 +396,8 @@ def check_administrator_view(args, oracle):
         html = browser.submit("/admin/login", {
             "username": args.admin_user, "password": args.admin_password,
             "csrf_token": CSRF.search(html).group(1)})
-        counts = [int(float(value)) for value in STAT.findall(html)[:4]]
-        for label, count in zip(
-                ("consented", "finished the pre-assessment", "finished both assessments",
-                 "finished the survey"), counts + [None] * 4):
+        counts = [int(float(value)) for value in STAT.findall(html)[:len(DASHBOARD_COUNTS)]]
+        for label, count in zip(DASHBOARD_COUNTS, counts + [None] * len(DASHBOARD_COUNTS)):
             oracle.check(f"dashboard: {label}", oracle.completed, count)
         status, _headers, payload, _elapsed = browser.send("GET", "/admin/export.csv")
         if status != 200:
@@ -452,7 +461,8 @@ def format_report(report):
         "by the system match the independent oracle",
         f"  {accuracy['journeys']} journeys x {VALUES_PER_RESULTS_PAGE} results-page checks"
         + (f"; {accuracy['export_rows']} export rows x {VALUES_PER_EXPORT_ROW} values; "
-           "4 dashboard counts; 1 row count" if accuracy["export_rows"] is not None else ""),
+           f"{len(DASHBOARD_COUNTS)} dashboard counts; 1 row count"
+           if accuracy["export_rows"] is not None else ""),
     ]
     for line in report["problems"]:
         lines.append(f"  ! {line}")

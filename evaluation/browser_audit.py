@@ -10,16 +10,19 @@ participant journey and the administrator area four times:
 1. Inspection. On each screen it runs axe-core (when --axe names the script), the
    checks in page_checks.js at five window widths, and a Tab-key walk that looks
    for a visible focus indicator on every control.
-2. Keyboard. It completes the whole journey, including withdrawal, with key
+2. Keyboard. It withdraws once and then completes the whole journey with key
    presses only (WCAG 2.1.1 Keyboard and 2.1.2 No Keyboard Trap).
 3. Page load without throttling. It reads the browser's own Navigation Timing
    record for every screen.
 4. Page load on an emulated slow mobile connection, with the network and
    processor limits that Lighthouse uses for its "slow 4G" profile.
 
-Each journey withdraws at the end, so the audit leaves no participant records.
-Run it after the load test: the administrator dashboard shows its statistics
-only when five participants have finished both assessments.
+Each journey first consents and withdraws, then consents again, completes every
+step, and finishes. A finished session can no longer be withdrawn, so every
+journey leaves one scripted record: run the audit against a test instance and
+never against the database of a live study. Run it after the load test, because
+the administrator dashboard shows its statistics only when five participants
+have finished both assessments.
 """
 
 import argparse
@@ -62,7 +65,7 @@ CHECK_LABELS = (
     ("structure", "several", "Language, title, headings, landmarks, skip link"),
     ("reflow", "1.4.10", "No horizontal scrolling at 320 to 1920 px"),
     ("text-spacing", "1.4.12", "No clipped text with wider text spacing"),
-    ("target-size", "2.5.8", "Touch targets at least 24 by 24 px (WCAG 2.2)"),
+    ("target-size", "2.5.8", "Touch targets 24 by 24 px or spaced apart (WCAG 2.2)"),
 )
 AXE_RUN = """async (tags) => {
   const result = await axe.run(document, {runOnly: {type: "tag", values: tags}});
@@ -143,17 +146,26 @@ class Journey:
             self.answer(correct=position % 4 != 3)
         self.screen("Assessment complete", "submit")
 
-    def run(self):
-        page = self.page
+    def consent(self):
         self.open("/consent")
         self.screen("Consent")
-        self.open("/consent/declined")
-        self.screen("Consent declined")
-        self.open("/consent")
-        page.check("input[name=adult]")
-        page.check("input[name=agree]")
+        self.page.check("input[name=adult]")
+        self.page.check("input[name=agree]")
         self.follow("form.consent-form button[type=submit]")
         self.screen("Dashboard (start)", "submit")
+
+    def run(self):
+        page = self.page
+        self.open("/consent/declined")
+        self.screen("Consent declined")
+        # A participant who changes their mind: consent, then withdraw at once.
+        self.consent()
+        self.follow("a[href$='/withdraw']")
+        self.screen("Withdraw confirmation")
+        self.follow("form button.btn--danger")
+        self.screen("Withdrawn", "submit")
+        # A participant who completes every step and finishes.
+        self.consent()
         self.follow("a[href$='/assessment/pre']")
         self.assessment()
         self.follow("a[href$='/learn']")
@@ -180,10 +192,9 @@ class Journey:
         self.screen("Dashboard (complete)")
         self.open("/no-such-page")
         self.screen("Error page")
-        self.open("/withdraw")
-        self.screen("Withdraw confirmation")
-        self.follow("form button.btn--danger")
-        self.screen("Withdrawn", "submit")
+        self.open("/dashboard")
+        self.follow("form.finish button[type=submit]")
+        self.screen("Finished", "submit")
         if self.admin:
             self.open("/admin/login")
             self.screen("Administrator sign-in")
@@ -358,13 +369,20 @@ class Keys:
         else:
             self.activate(f"button[name=answer][value={label}]")
 
-    def run(self):
-        page = self.page
-        page.goto(self.base_url + "/consent", wait_until="load")
+    def consent(self):
+        self.page.goto(self.base_url + "/consent", wait_until="load")
         for box in ("adult", "agree"):
             self.tab_to(f"input[name={box}]")
             self.press("Space")
         self.activate("form.consent-form button[type=submit]")
+
+    def run(self):
+        page = self.page
+        self.consent()
+        self.activate("a[href$='/withdraw']")
+        self.activate("form button.btn--danger")
+        withdrawn = "withdrawn" in page.locator("h1").inner_text()
+        self.consent()
         self.activate("a[href$='/assessment/pre']")
         for _ in range(12):
             self.answer()
@@ -384,11 +402,10 @@ class Keys:
             for _ in range(3):
                 self.press("ArrowRight")              # ... moved along to "Agree"
         self.activate("form.sus button[type=submit]")
-        finished = "Thank you" in page.locator("h1").inner_text()
-        self.activate("a[href$='/withdraw']")
-        self.activate("form button.btn--danger")
-        withdrawn = page.locator("h1").inner_text()
-        return {"completed": finished, "presses": self.presses, "last_screen": withdrawn}
+        self.activate("form.finish button[type=submit]")
+        finished = "signed out" in page.locator("h1").inner_text()
+        return {"completed": withdrawn and finished, "presses": self.presses,
+                "last_screen": page.locator("h1").inner_text()}
 
 
 def timed_journey(browser, args, bank, context_options, throttle):
@@ -457,7 +474,7 @@ def problems(report):
         found.append("keyboard-only journey did not finish: "
                      + report["keyboard"].get("error", "the final screen was not reached"))
     for condition, summary in report["load_ms"].items():
-        for key, label in (("open", "open a screen"), ("submit", "answer to next screen")):
+        for key, label in (("open", "open a screen"), ("submit", "submit to next screen")):
             if summary[key]["p95"] > report["budget_ms"]:
                 found.append(f"page load, {condition}, {label}: 95th percentile "
                              f"{summary[key]['p95']} ms exceeds {report['budget_ms']:g} ms")
@@ -483,13 +500,13 @@ def format_report(report):
         failed = sum(1 for failure in report["failures"] if failure["check"] == check)
         lines.append(f"  {label:<52}{criterion:>8}{report['checked'].get(check, 0):>9}{failed:>8}")
     keyboard = report["keyboard"]
-    lines += ["", "Keyboard-only journey (2.1.1, 2.1.2): "
-              + (f"completed and withdrawn with {keyboard['presses']} key presses"
+    lines += ["", "Keyboard only (2.1.1, 2.1.2): "
+              + (f"a withdrawal and a complete journey with {keyboard['presses']} key presses"
                  if keyboard["completed"] else "NOT completed")]
     lines += ["", "Page load in the browser, navigation start to load event (ms)",
               f"  {'condition':<18}{'navigation':<22}{'count':>6}{'median':>8}{'p95':>8}{'max':>8}"]
     for condition, summary in report["load_ms"].items():
-        for key, label in (("open", "open a screen"), ("submit", "answer to next screen"),
+        for key, label in (("open", "open a screen"), ("submit", "submit to next screen"),
                            ("all", "all navigations")):
             stats = summary[key]
             lines.append(f"  {condition:<18}{label:<22}{stats['count']:>6}{stats['median']:>8}"

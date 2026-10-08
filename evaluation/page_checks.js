@@ -59,7 +59,9 @@
   function luminance(color) {
     const channel = (value) => {
       const v = value / 255;
-      return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
+      // 0.04045 is the sRGB threshold in the current text of WCAG 2.1. Earlier
+      // texts printed 0.03928; no 8-bit colour falls between the two values.
+      return v <= 0.04045 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
     };
     return 0.2126 * channel(color.r) + 0.7152 * channel(color.g) + 0.0722 * channel(color.b);
   }
@@ -152,13 +154,18 @@
       }
     });
   document.querySelectorAll("svg rect.bar").forEach((bar) => {
-    const fill = parseColor(getComputedStyle(bar).fill);
+    const style = getComputedStyle(bar);
+    const fill = parseColor(style.fill);
+    const stroke = parseFloat(style.strokeWidth) > 0 ? parseColor(style.stroke) : null;
     const around = backgroundOf(bar.closest("svg").parentElement);
     count("chart-bar");
-    if (fill && around && contrast(fill, around) < 3 && !reported.has("bar" + hex(fill))) {
+    if (!fill || !around) return;
+    // A bar can be told from the page by its fill or by its outline.
+    const best = Math.max(contrast(fill, around), stroke ? contrast(over(stroke, around), around) : 1);
+    if (best < 3 && !reported.has("bar" + hex(fill))) {
       reported.add("bar" + hex(fill));
       advise("chart-bar", "1.4.11", bar,
-        `bar ${hex(fill)} on ${hex(around)} is ${contrast(fill, around).toFixed(2)}:1; ` +
+        `bar ${hex(fill)} on ${hex(around)} is ${best.toFixed(2)}:1; ` +
         "each bar also carries its value as text");
     }
   });
@@ -200,7 +207,7 @@
     }
   });
 
-  // ---- Page structure: 3.1.1, 2.4.2, 1.3.1, 2.4.1, 4.1.1 ----
+  // ---- Page structure: 3.1.1, 2.4.2, 1.3.1, 2.4.1, 2.4.3 ----
   count("structure", 6);
   if (!(document.documentElement.getAttribute("lang") || "").trim()) {
     fail("structure", "3.1.1", null, "the page does not declare its language");
@@ -224,9 +231,21 @@
   if (!skip || skip !== interactive[0] || !document.querySelector(skip.getAttribute("href"))) {
     fail("structure", "2.4.1", skip, "the first control is not a working skip link");
   }
+  // A repeated id breaks a page only when a label, an ARIA attribute, or a link
+  // points at it: the reference then resolves to the wrong element (1.3.1).
+  // Criterion 4.1.1 Parsing, which used to cover every repeated id, is always
+  // satisfied in the current text of WCAG 2.1 and was removed from WCAG 2.2.
   const ids = Array.from(document.querySelectorAll("[id]")).map((e) => e.id);
-  ids.filter((id, i) => ids.indexOf(id) !== i).forEach((id) =>
-    fail("structure", "4.1.1", document.getElementById(id), `id "${id}" is used more than once`));
+  const referenced = new Set();
+  document.querySelectorAll("[for], [aria-labelledby], [aria-describedby], [aria-controls], a[href^='#']")
+    .forEach((element) => ["for", "aria-labelledby", "aria-describedby", "aria-controls"]
+      .map((name) => element.getAttribute(name) || "")
+      .concat((element.getAttribute("href") || "").replace(/^#/, ""))
+      .join(" ").split(/\s+/).filter(Boolean).forEach((id) => referenced.add(id)));
+  Array.from(new Set(ids.filter((id, i) => ids.indexOf(id) !== i))).forEach((id) => {
+    const report = referenced.has(id) ? fail : advise;
+    report("structure", "1.3.1", document.getElementById(id), `id "${id}" is used more than once`);
+  });
   if (document.querySelector("[tabindex]:not([tabindex='0']):not([tabindex='-1'])")) {
     fail("structure", "2.4.3", null, "a positive tabindex changes the natural focus order");
   }
@@ -250,23 +269,47 @@
     });
   }
 
-  // ---- 2.5.8 Target Size (Minimum), WCAG 2.2: 24 by 24 CSS pixels ----
+  // ---- 2.5.8 Target Size (Minimum), WCAG 2.2 ----
+  // A target passes when it is at least 24 by 24 CSS pixels. A smaller target
+  // passes through the criterion's spacing exception: a circle 24 px across,
+  // centred on the target, must not touch another target or the circle of
+  // another undersized target.
   if (options.targets) {
+    const targets = [];
     interactive.forEach((element) => {
-      if (!isVisible(element) && !element.closest("label")) return;
       // A checkbox or radio button is operated through its whole label.
       const target = element.matches("input[type=checkbox], input[type=radio]")
         ? (element.closest("label") || element) : element;
-      if (!isVisible(target)) return;
+      if (!isVisible(target) || targets.some((known) => known.element === target)) return;
       // Links inside a sentence are exempt from the criterion.
       const inline = target.tagName === "A" && target.parentElement.tagName === "P" &&
         target.parentElement.textContent.trim() !== target.textContent.trim();
       if (inline) return;
       const box = target.getBoundingClientRect();
+      targets.push({
+        element: target, box, small: Math.min(box.width, box.height) < 24,
+        x: box.left + box.width / 2, y: box.top + box.height / 2,
+      });
+    });
+    const RADIUS = 12;
+    const touchesBox = (circle, box) => {   // does the circle overlap the rectangle?
+      const dx = circle.x - Math.max(box.left, Math.min(circle.x, box.right));
+      const dy = circle.y - Math.max(box.top, Math.min(circle.y, box.bottom));
+      return dx * dx + dy * dy < RADIUS * RADIUS;
+    };
+    const touchesCircle = (a, b) => Math.hypot(a.x - b.x, a.y - b.y) < 2 * RADIUS;
+    targets.forEach((target) => {
       count("target-size");
-      if (Math.min(box.width, box.height) < 24) {
-        fail("target-size", "2.5.8", target,
-          `target is ${Math.round(box.width)} by ${Math.round(box.height)} px; needs 24 by 24`);
+      if (!target.small) return;
+      const crowded = targets.find((other) => other !== target &&
+        (other.small ? touchesCircle(target, other) : touchesBox(target, other.box)));
+      const size = `${Math.round(target.box.width)} by ${Math.round(target.box.height)} px`;
+      if (crowded) {
+        fail("target-size", "2.5.8", target.element,
+          `target is ${size} and its 24 px circle touches ${describe(crowded.element)}`);
+      } else {
+        advise("target-size", "2.5.8", target.element,
+          `target is ${size}; it passes because nothing is within its 24 px circle`);
       }
     });
   }
