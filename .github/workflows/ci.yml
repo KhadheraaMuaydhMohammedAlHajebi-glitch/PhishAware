@@ -33,6 +33,7 @@ jobs:
   quality-gate:
     name: Lint, test, and security scan (Python ${{ matrix.python }})
     runs-on: ubuntu-24.04   # pinned: "ubuntu-latest" moves to a new release without notice
+    timeout-minutes: 15     # a hung step fails the job instead of holding a runner for six hours
     strategy:
       fail-fast: false
       matrix:
@@ -77,6 +78,7 @@ jobs:
   container:
     name: Build the image and smoke-test the HTTPS stack
     runs-on: ubuntu-24.04
+    timeout-minutes: 20
     needs: quality-gate
     env:
       PHISHAWARE_VERSION: ci
@@ -266,6 +268,7 @@ jobs:
   evaluation:
     name: Evaluate the running stack (load, accuracy, accessibility)
     runs-on: ubuntu-24.04
+    timeout-minutes: 30
     needs: container
     env:
       PHISHAWARE_VERSION: ci
