@@ -34,7 +34,7 @@ class AppTestCase(unittest.TestCase):
 
     def count(self, table):
         allowed = {"participant", "attempt", "response", "scenario", "sus_response",
-                   "admin_user", "admin_login_attempt"}
+                   "lesson_view", "admin_user", "admin_login_attempt"}
         if table not in allowed:
             raise ValueError(table)
         return self.query(f"SELECT COUNT(*) AS n FROM {table}")[0]["n"]  # nosec B608
@@ -86,7 +86,12 @@ class AppTestCase(unittest.TestCase):
     def answer_pretest(self, correct=True, client=None):
         self.answer_pattern("/assessment/pre", [correct] * 12, client)
 
+    def open_lessons(self, client=None):
+        """Open the lessons page, which unlocks the practice phase."""
+        return (client or self.client).get("/learn")
+
     def finish_practice(self, client=None):
+        self.open_lessons(client)
         self.answer_pattern("/practice", [True] * 6, client)
 
     def answer_posttest(self, correct=True, client=None):

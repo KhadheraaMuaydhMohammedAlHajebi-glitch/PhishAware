@@ -1,12 +1,15 @@
 """M3 Learning Content: six short lessons, one per phishing-cue category (FR-04).
 
 Lessons live in data/lessons.json so they can be edited without code changes.
+Opening the page is recorded, because the practice phase follows the lessons:
+the design's sequence is assessment, instruction, practice, assessment.
 """
 
 import json
 
 from flask import Blueprint, current_app, g, redirect, render_template, url_for
 
+from src import repository
 from src.modules.progress import pretest_done
 from src.modules.security import require_consent
 
@@ -23,4 +26,5 @@ def load_lessons():
 def lessons():
     if not pretest_done(g.participant):
         return redirect(url_for("assessment.pre_item"))
+    repository.record_lesson_view(g.participant["id"])
     return render_template("learn.html", lessons=load_lessons())

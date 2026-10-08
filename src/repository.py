@@ -168,6 +168,24 @@ def responses_with_cues(attempt_id):
     return [(row["cue"], bool(row["is_correct"])) for row in rows]
 
 
+# Lessons (M3) -------------------------------------------------------------------
+def record_lesson_view(participant_id):
+    """Remember that the participant opened the lessons; later visits change nothing."""
+    db = get_db()
+    db.execute(
+        "INSERT OR IGNORE INTO lesson_view (participant_id, viewed_at) VALUES (?, ?)",
+        (participant_id, utc_now()),
+    )
+    db.commit()
+
+
+def lessons_viewed(participant_id):
+    row = get_db().execute(
+        "SELECT 1 FROM lesson_view WHERE participant_id = ?", (participant_id,)
+    ).fetchone()
+    return row is not None
+
+
 # Usability survey (M6) ---------------------------------------------------------
 def save_sus(participant_id, ratings, score):
     """Store the ten ratings once and mark the participant as completed.
@@ -248,6 +266,7 @@ def funnel_counts():
         "(SELECT COUNT(*) FROM participant) AS consented, "
         "(SELECT COUNT(*) FROM attempt WHERE phase = 'pre' "
         "AND completed_at IS NOT NULL) AS pre_done, "
+        "(SELECT COUNT(*) FROM lesson_view) AS lessons_opened, "
         "(SELECT COUNT(*) FROM attempt WHERE phase = 'practice' "
         "AND completed_at IS NOT NULL) AS practice_done, "
         "(SELECT COUNT(*) FROM attempt WHERE phase = 'post' "

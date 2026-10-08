@@ -225,7 +225,7 @@ class AdminReportingTests(AppTestCase):
         self.assertIn("57% of those who consented", page)  # 4 of 7
         with self.app.app_context():
             self.assertEqual(repository.funnel_counts(), {
-                "consented": 7, "pre_done": 6, "practice_done": 5,
+                "consented": 7, "pre_done": 6, "lessons_opened": 5, "practice_done": 5,
                 "post_done": 5, "survey_done": 4})
 
     def test_identical_gains_are_reported_without_an_effect_size(self):

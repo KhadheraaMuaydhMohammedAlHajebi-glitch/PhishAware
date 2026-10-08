@@ -30,19 +30,21 @@
     <a class="btn btn--primary btn--sm" href="{{ url_for('assessment.pre_item') }}">{{ 'Resume' if pre.started else 'Start' }}</a>
     {% endif %}
   </li>
-  <li class="step {{ 'step--open' if pre.done else 'step--locked' }}">
+  <li class="step {% if progress.lessons_done %}step--done{% elif pre.done %}step--current{% else %}step--locked{% endif %}">
     <span class="step__num" aria-hidden="true">3</span>
     <div class="step__body">
       <h2>Learning modules</h2>
       <p>Six one-minute lessons, one for each phishing cue.</p>
     </div>
-    {% if pre.done %}
-    <a class="btn btn--secondary btn--sm" href="{{ url_for('learning.lessons') }}">Open lessons</a>
+    {% if progress.lessons_done %}
+    <a class="btn btn--secondary btn--sm" href="{{ url_for('learning.lessons') }}">Review the lessons</a>
+    {% elif pre.done %}
+    <a class="btn btn--primary btn--sm" href="{{ url_for('learning.lessons') }}">Open the lessons</a>
     {% else %}
     <span class="badge badge--locked">After the pre-assessment</span>
     {% endif %}
   </li>
-  <li class="step {% if practice.done %}step--done{% elif pre.done %}step--current{% else %}step--locked{% endif %}">
+  <li class="step {% if practice.done %}step--done{% elif progress.lessons_done %}step--current{% else %}step--locked{% endif %}">
     <span class="step__num" aria-hidden="true">4</span>
     <div class="step__body">
       <h2>Practice scenarios</h2>
@@ -51,10 +53,10 @@
     </div>
     {% if practice.done %}
     <span class="badge badge--done">{{ practice.correct }} of {{ practice.total }} correct</span>
-    {% elif pre.done %}
+    {% elif progress.lessons_done %}
     <a class="btn btn--primary btn--sm" href="{{ url_for('practice.practice_item') }}">{{ 'Resume' if practice.started else 'Start' }}</a>
     {% else %}
-    <span class="badge badge--locked">After the pre-assessment</span>
+    <span class="badge badge--locked">After the lessons</span>
     {% endif %}
   </li>
   <li class="step {% if post.done %}step--done{% elif practice.done %}step--current{% else %}step--locked{% endif %}">

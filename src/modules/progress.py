@@ -38,6 +38,7 @@ def build_progress(participant):
         "pre": phase_status(participant_id, "pre", pre_total),
         "practice": phase_status(participant_id, "practice", practice_total),
         "post": phase_status(participant_id, "post", post_total),
+        "lessons_done": repository.lessons_viewed(participant_id),
         "survey_done": repository.get_sus(participant_id) is not None,
     }
 
@@ -51,3 +52,8 @@ def phase_done(participant, phase):
 def pretest_done(participant):
     """True once the participant has finished the pre-assessment."""
     return phase_done(participant, "pre")
+
+
+def lessons_done(participant):
+    """True once the participant has opened the lessons."""
+    return repository.lessons_viewed(participant["id"])

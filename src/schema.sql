@@ -53,6 +53,13 @@ CREATE TABLE IF NOT EXISTS response (
     UNIQUE (attempt_id, scenario_id)
 );
 
+-- M3: when a participant first opened the lessons (FR-04). The practice phase
+-- opens only after this, so everyone who practised was offered the lessons.
+CREATE TABLE IF NOT EXISTS lesson_view (
+    participant_id TEXT PRIMARY KEY REFERENCES participant(id) ON DELETE CASCADE,
+    viewed_at      TEXT NOT NULL
+);
+
 -- M6: System Usability Scale ratings (FR-09), one row per participant.
 CREATE TABLE IF NOT EXISTS sus_response (
     participant_id TEXT PRIMARY KEY REFERENCES participant(id) ON DELETE CASCADE,

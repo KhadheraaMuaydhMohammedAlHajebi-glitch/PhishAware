@@ -216,7 +216,7 @@ progress::-moz-progress-bar { background: var(--teal); }
 .stat__value--up { color: var(--teal-dark); }
 .stat__value--down { color: var(--hook-dark); }
 .stat__note { margin: 4px 0 0; font-size: 0.86rem; color: var(--muted); }
-.stats--four { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.stats--five { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 .chart, .next-steps { margin-bottom: 20px; }
 .chart h2, .next-steps h2 { font-size: 1.3rem; margin: 0 0 6px; }
 .chart__legend { margin: 0 0 16px; font-size: 0.93rem; color: var(--muted); }
@@ -273,7 +273,7 @@ progress::-moz-progress-bar { background: var(--teal); }
 @media (max-width: 900px) {
   .workspace { grid-template-columns: 1fr; }
   .workspace__side { position: static; }
-  .lessons, .consent-grid, .stats, .stats--four { grid-template-columns: 1fr; }
+  .lessons, .consent-grid, .stats, .stats--five { grid-template-columns: 1fr; }
   .cue-row { grid-template-columns: 1fr; gap: 4px; }
   .sus__scale { grid-template-columns: 1fr; }
   .sus__choice { flex-direction: row; justify-content: flex-start; padding: 8px 12px; }

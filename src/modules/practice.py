@@ -9,12 +9,21 @@ not inflated by prior exposure (Unit 3 design, Section 3.2.2).
 from flask import Blueprint, abort, g, redirect, render_template, request, url_for
 
 from src import repository
-from src.modules.progress import pretest_done
+from src.modules.progress import lessons_done, pretest_done
 from src.modules.scoring import CUE_LABELS, score_attempt
 from src.modules.security import require_consent, validate_answer, validate_scenario_id
 
 bp = Blueprint("practice", __name__, url_prefix="/practice")
 PRACTICE_POOL = "P"
+
+
+def _not_yet_open():
+    """A redirect to the step that must come first, or None when practice is open."""
+    if not pretest_done(g.participant):
+        return redirect(url_for("assessment.pre_item"))
+    if not lessons_done(g.participant):
+        return redirect(url_for("learning.lessons"))
+    return None
 
 
 def _attempt():
@@ -32,8 +41,9 @@ def _complete_if_finished(attempt, total):
 @bp.get("")
 @require_consent
 def practice_item():
-    if not pretest_done(g.participant):
-        return redirect(url_for("assessment.pre_item"))
+    earlier_step = _not_yet_open()
+    if earlier_step is not None:
+        return earlier_step
     attempt = _attempt()
     items = repository.scenarios_for_pool(PRACTICE_POOL)
     answered = repository.answered_ids(attempt["id"])
@@ -53,8 +63,9 @@ def practice_item():
 @bp.post("")
 @require_consent
 def practice_answer():
-    if not pretest_done(g.participant):
-        return redirect(url_for("assessment.pre_item"))
+    earlier_step = _not_yet_open()
+    if earlier_step is not None:
+        return earlier_step
     scenario_id = validate_scenario_id(request.form.get("scenario_id"))
     answer = validate_answer(request.form.get("answer"))
     scenario = repository.get_scenario(scenario_id, PRACTICE_POOL)

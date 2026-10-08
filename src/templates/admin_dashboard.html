@@ -6,7 +6,7 @@
   <p class="lead">Aggregate statistics computed from pseudonymous records. No participant identifier is shown on this page or included in the export.</p>
 </section>
 <h2 class="section-title">Participation</h2>
-<div class="stats stats--four">
+<div class="stats stats--five">
   <div class="stat">
     <p class="stat__label">Consented</p>
     <p class="stat__value">{{ funnel.consented }}</p>
@@ -14,6 +14,10 @@
   <div class="stat">
     <p class="stat__label">Finished the pre-assessment</p>
     <p class="stat__value">{{ funnel.pre_done }}</p>
+  </div>
+  <div class="stat">
+    <p class="stat__label">Opened the lessons</p>
+    <p class="stat__value">{{ funnel.lessons_opened }}</p>
   </div>
   <div class="stat">
     <p class="stat__label">Finished both assessments</p>

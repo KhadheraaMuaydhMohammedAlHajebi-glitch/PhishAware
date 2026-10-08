@@ -26,11 +26,19 @@ class NavigationTests(AppTestCase):
         page = self.dashboard()
         self.assertIn(f"Anonymous session {participant_id[-6:]}", page)
         self.assertIn("You take Form A first and Form B at the end", page)
-        self.assertIn("After the pre-assessment", page)   # lessons and practice are locked
+        self.assertIn("After the pre-assessment", page)   # the lessons are locked
+        self.assertIn("After the lessons", page)          # and so is the practice
         self.answer_pattern("/assessment/pre", [True] * 3)
         self.assertIn("3 of 12 answered", self.dashboard())
         self.answer_pattern("/assessment/pre", [True] * 9)
-        self.assertIn("Baseline 100.0%", self.dashboard())
+        page = self.dashboard()
+        self.assertIn("Baseline 100.0%", page)
+        self.assertIn("Open the lessons", page)
+        self.assertIn("After the lessons", page)          # practice waits for the lessons
+        self.open_lessons()
+        page = self.dashboard()
+        self.assertIn("Review the lessons", page)
+        self.assertNotIn("After the lessons", page)
         self.finish_practice()
         self.assertIn("6 of 6 correct", self.dashboard())
         self.answer_posttest()
@@ -67,6 +75,7 @@ class NavigationTests(AppTestCase):
         self.answer_pretest()
         response = self.client.get("/practice/complete")        # nothing practised yet
         self.assertEqual(response.status_code, 302)
+        self.open_lessons()
         data["scenario_id"] = "A01"                              # not a practice scenario
         self.assertEqual(self.client.post("/practice", data=data).status_code, 400)
         self.finish_practice()
