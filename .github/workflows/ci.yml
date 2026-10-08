@@ -152,7 +152,8 @@ jobs:
             for version in tls1_2 tls1_3; do
               openssl s_client -connect localhost:443 -servername localhost \
                 -CAfile caddy-root.crt "-$version" < /dev/null 2> /dev/null \
-                | grep -E "^New, |Verify return code" | paste -sd ' ' -
+                | grep -E "^New, |Verify return code" | sed 's/^ *//' | sort -u | paste -sd ';' - \
+                | sed 's/;/; /g'
             done
             # A lowered security level lets this client offer TLS 1.1, so that a
             # refusal comes from the server and not from the client's own policy.
@@ -161,7 +162,7 @@ jobs:
               echo "TLS 1.1 was accepted"
               exit 1
             fi
-            echo "TLS 1.1: refused ($(grep -m 1 -oE 'alert [a-z ]+|no protocols available|unknown option' tls11.log || echo 'handshake failed'))"
+            echo "TLS 1.1: refused ($(grep -oE 'alert protocol version|no protocols available|unknown option' tls11.log | head -n 1 | grep . || echo 'handshake failed'))"
           } 2>&1 | tee tls.log
           grep -q "New, TLSv1.2" tls.log
           grep -q "New, TLSv1.3" tls.log
@@ -284,7 +285,7 @@ jobs:
       - name: Load test - latency, throughput, and result accuracy
         run: |
           python3 evaluation/loadtest.py --base-url https://localhost --cacert caddy-root.crt \
-            --levels 1,5,10,25,50,100 --min-journeys 25 \
+            --levels 1,5,10,25,50,100,200 --min-journeys 25 \
             --admin-user evaluator --admin-password "$EVALUATOR_PASSWORD" \
             --markdown "$GITHUB_STEP_SUMMARY" | tee loadtest.log
 
@@ -338,7 +339,7 @@ jobs:
           {
             echo "Journal mode: $(docker compose exec -T app python -c "import sqlite3; print(sqlite3.connect('/data/phishaware.db').execute('PRAGMA journal_mode').fetchone()[0])") (PHISHAWARE_SQLITE_JOURNAL=WAL)"
             python3 evaluation/loadtest.py --base-url https://localhost --cacert caddy-root.crt \
-              --levels 1,5,10,25,50,100 --min-journeys 25 \
+              --levels 1,5,10,25,50,100,200 --min-journeys 25 \
               --admin-user evaluator --admin-password "$EVALUATOR_PASSWORD"
           } | tee loadtest-wal.log
 

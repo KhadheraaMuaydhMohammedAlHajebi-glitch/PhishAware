@@ -13,6 +13,7 @@ name: phishaware
 x-runtime: &runtime
   image: phishaware:${PHISHAWARE_VERSION:-0.6.0}
   restart: unless-stopped
+  init: true                         # forwards the stop signal, so services stop at once
   env_file: .env
   volumes:
     - phishaware-data:/data          # the database and its encrypted backups
