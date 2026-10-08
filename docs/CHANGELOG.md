@@ -4,8 +4,39 @@ All notable changes to PhishAware are recorded here (Keep a Changelog format).
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-10-09 (Unit 6: integration, evaluation, and deployment)
+
+### Added
+- M7 Admin Reporting (FR-11): administrator sign-in with scrypt-hashed passwords, a rate limit keyed on the user name instead of an IP address, a 15-minute idle limit and an 8-hour session limit; an aggregate dashboard that shows statistics only from five completed participants; and a de-identified CSV export without identifiers or timestamps.
+- M8 data protection: a retention job that deletes records 90 days after consent, backups encrypted with AES-256-GCM that expire after 7 days, a restore command that checks authenticity, integrity, and schema first, and a `run-jobs` service with its own health check (NFR-05, NFR-11, NFR-12).
+- M1: consent form 1.1, which states the retention period, the backup period, and the session limit, and a Finish step that ends the session on the server (FR-01, FR-10).
+- M3 and M4: opening the lessons is recorded as a step and unlocks the practice scenarios; an answer is chosen first and then submitted with a separate button (FR-04, FR-05).
+- Deployment: a production image (`Dockerfile`), a three-service stack with an HTTPS reverse proxy (`docker-compose.yml`, `deploy/Caddyfile`), server settings (`gunicorn.conf.py`), a settings template (`.env.example`), exact versions of all eleven packages (`constraints.txt`), start-up checks that refuse an unsafe configuration, and a health endpoint (`/healthz`) (NFR-08, NFR-12).
+- Evaluation tools: `evaluation/loadtest.py` (latency, throughput, and the accuracy of every reported score against an independent oracle) and `evaluation/browser_audit.py` (accessibility, layout from 320 to 1920 px, keyboard-only use, page-load time, and the complete journey repeated in Firefox and WebKit) (NFR-01, NFR-03, NFR-04).
+- CI: a quality gate on Python 3.11 and 3.13, a container job that builds the image, smoke-tests the stack over HTTPS, and rehearses the restore procedure, and an evaluation job that measures the running stack on every push. Every job has a time limit.
+- Documents: `docs/deployment.md`, `docs/evaluation.md`, and `docs/security-checklist.md` (a review against OWASP ASVS 5.0).
+- 155 new tests (233 in total); statement coverage of `src/` remains 100% (1,280 statements).
+
 ### Changed
+- The session cookie is signed with HMAC-SHA-256 and, over HTTPS, carries the `__Host-` prefix; the content security policy adds `object-src 'none'` and `base-uri 'none'`; responses that end a session send `Clear-Site-Data`; HTTPS deployments send `Strict-Transport-Security`.
+- SQLite's journal mode is chosen from the library release (`PHISHAWARE_SQLITE_JOURNAL=AUTO`): write-ahead logging only where the WAL-reset bug is fixed, the rollback journal otherwise.
+- Static files carry a content fingerprint and may be cached for a year (NFR-01).
+- Addresses and domains in scenarios, lessons, and feedback are rendered as units that cannot break inside a label (NFR-04).
+- The results page states that both forms follow the same plan; it no longer claims equal difficulty, which has not been measured.
 - README: the release steps now describe how each version tag is created, by publishing a GitHub Release from the release branch.
+
+### Fixed
+- Restoring an empty or non-SQLite backup ended with an unhandled `MemoryError`; the file is now rejected with a clear message.
+- A copy of a session cookie stayed valid after Finish or sign-out (OWASP ASVS 7.4.1); the end of a session is now recorded on the server.
+- Backups were kept without an age limit, so a deleted record could survive in them.
+- Accessibility audit: the keyboard focus ring on the top bar (2.41:1) and text-field borders (2.93:1) were below the 3:1 contrast that WCAG 1.4.11 requires, the dashboard scrolled sideways at 320 px, and top-bar links were smaller than the 24 px minimum target.
+- Pages took more than two seconds on an emulated slow mobile connection, because static files were revalidated on every view.
+
+### Security
+- OWASP ASVS 5.0, Level 1: of 70 requirements, 16 do not apply, 52 are met, one is an accepted deviation, and one is open (6.2.4, a check against common passwords, rated low). No critical or high finding is open (NFR-12).
+
+### Planned
+- 0.7.0 (Unit 7): system and acceptance testing, the open findings of the usability inspection, the common-password check, and the pilot with participants once it is approved.
 
 ## [0.5.1] - 2026-10-07 (Unit 5: testing completion)
 
