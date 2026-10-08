@@ -72,6 +72,17 @@ class AdminAccessTests(AppTestCase):
             self.assertTrue(stored.startswith("scrypt:"))
             self.assertNotIn(ADMIN_PASSWORD, stored)
 
+    def test_production_hash_uses_a_setting_from_the_owasp_cheat_sheet(self):
+        from src.config import Config
+        self.assertEqual(Config.ADMIN_PASSWORD_METHOD, "scrypt:32768:8:3")
+        self.app.config["ADMIN_PASSWORD_METHOD"] = Config.ADMIN_PASSWORD_METHOD
+        self.create_admin(username="production-admin")
+        stored = self.query(
+            "SELECT password_hash FROM admin_user WHERE username = 'production-admin'"
+        )[0]["password_hash"]
+        self.assertTrue(stored.startswith("scrypt:32768:8:3$"))
+        self.assertEqual(self.admin_sign_in(username="production-admin").status_code, 302)
+
     def test_sixth_attempt_is_blocked_even_with_the_right_password(self):
         for _ in range(5):
             self.assertEqual(self.admin_sign_in(password="guess").status_code, 401)

@@ -22,6 +22,8 @@ class AppTestCase(unittest.TestCase):
             "TESTING": True,
             "DATABASE": os.path.join(self._tmp.name, "test.db"),
             "SECRET_KEY": "test-secret-key",
+            # A cheap hash keeps the suite fast; test_admin checks the real setting.
+            "ADMIN_PASSWORD_METHOD": "scrypt:1024:8:1",
         })
         self.client = self.app.test_client()
 

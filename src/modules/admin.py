@@ -59,7 +59,12 @@ def _decoy_hash():
     Verifying it takes as long as verifying a real hash, so response time does
     not reveal whether an account exists.
     """
-    return generate_password_hash(secrets.token_urlsafe(32))
+    return hash_password(secrets.token_urlsafe(32))
+
+
+def hash_password(password):
+    """Salted scrypt hash with the configured cost parameters (NFR-10)."""
+    return generate_password_hash(password, method=current_app.config["ADMIN_PASSWORD_METHOD"])
 
 
 def _window_start():
@@ -208,6 +213,6 @@ def create_admin_command(username, password):
         raise click.BadParameter(
             f"use at least {MIN_PASSWORD_LENGTH} characters", param_hint="--password"
         )
-    created = repository.save_admin(username, generate_password_hash(password))
+    created = repository.save_admin(username, hash_password(password))
     action = "created" if created else "updated; earlier sessions are signed out"
     click.echo(f"Administrator '{username}' {action}.")

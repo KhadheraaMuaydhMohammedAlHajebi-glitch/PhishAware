@@ -25,9 +25,11 @@ CSRF_MESSAGE = (
     "Your security token is missing or has expired. "
     "Go back, reload the page, and try again."
 )
+# OWASP ASVS 5.0 requirement 3.4.3 asks for object-src 'none' and base-uri 'none'
+# as the minimum; everything else may load from this origin only.
 CONTENT_SECURITY_POLICY = (
     "default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; "
-    "form-action 'self'; frame-ancestors 'none'; base-uri 'self'"
+    "object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'"
 )
 
 

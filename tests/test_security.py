@@ -9,7 +9,12 @@ class SecurityTests(AppTestCase):
         for header in ("Content-Security-Policy", "X-Content-Type-Options",
                        "X-Frame-Options", "Referrer-Policy"):
             self.assertIn(header, response.headers)
-        self.assertIn("default-src 'self'", response.headers["Content-Security-Policy"])
+        policy = response.headers["Content-Security-Policy"]
+        for directive in ("default-src 'self'", "script-src 'self'", "style-src 'self'",
+                          "object-src 'none'", "base-uri 'none'", "frame-ancestors 'none'",
+                          "form-action 'self'"):
+            self.assertIn(directive, policy)
+        self.assertNotIn("unsafe", policy)   # no inline scripts or styles, no eval
 
     def test_post_without_csrf_token_is_rejected(self):
         response = self.client.post("/consent", data={"adult": "yes", "agree": "yes"})

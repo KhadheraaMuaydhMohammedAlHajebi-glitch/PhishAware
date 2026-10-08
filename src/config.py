@@ -87,6 +87,11 @@ class Config:
     BACKUP_DIR = os.environ.get("PHISHAWARE_BACKUP_DIR")
     JOB_INTERVAL = env_int("PHISHAWARE_JOB_INTERVAL", 24 * 60 * 60)
 
+    # Administrator passwords are hashed with scrypt at N = 2^15, r = 8, p = 3,
+    # one of the settings in the OWASP Password Storage Cheat Sheet. Werkzeug's
+    # own default (p = 1) is weaker than any setting on that list.
+    ADMIN_PASSWORD_METHOD = "scrypt:32768:8:3"
+
     # Administrator access (M7, NFR-10): idle sign-out and sign-in rate limit.
     ADMIN_IDLE_TIMEOUT = 15 * 60       # seconds without a request before sign-out
     ADMIN_MAX_FAILED_LOGINS = 5        # failed attempts allowed per username ...
