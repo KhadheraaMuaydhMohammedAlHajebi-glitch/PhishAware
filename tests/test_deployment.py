@@ -11,13 +11,11 @@ import tempfile
 import unittest
 from unittest import mock
 
-from cryptography.fernet import Fernet
-
-from src import __version__, repository
+from src import __version__, db, repository
 from src.app import create_app
-from src.config import env_flag
+from src.config import env_flag, env_int
 from src.db import get_db
-from tests.helpers import AppTestCase
+from tests.helpers import AppTestCase, new_backup_key
 
 SUS = [4, 2, 5, 1, 4, 2, 5, 2, 4, 1]
 
@@ -54,7 +52,26 @@ class StartupCheckTests(unittest.TestCase):
             self.start(APP_ENV="staging", SQLITE_JOURNAL_MODE="FAST")
         message = str(raised.exception)
         self.assertIn("PHISHAWARE_ENV must be one of development, production", message)
-        self.assertIn("PHISHAWARE_SQLITE_JOURNAL must be one of WAL, DELETE", message)
+        self.assertIn("PHISHAWARE_SQLITE_JOURNAL must be one of AUTO, WAL, DELETE", message)
+
+    def test_periods_shorter_than_their_minimum_are_reported(self):
+        with self.assertRaises(RuntimeError) as raised:
+            self.start(RETENTION_DAYS=0, BACKUP_RETENTION_DAYS=0, JOB_INTERVAL=59)
+        message = str(raised.exception)
+        self.assertIn("PHISHAWARE_RETENTION_DAYS must be at least 1", message)
+        self.assertIn("PHISHAWARE_BACKUP_DAYS must be at least 1", message)
+        self.assertIn("PHISHAWARE_JOB_INTERVAL must be at least 60", message)
+        app = self.start(RETENTION_DAYS=1, BACKUP_RETENTION_DAYS=1, JOB_INTERVAL=60)
+        self.assertEqual(app.config["JOB_INTERVAL"], 60)
+
+    def test_env_int_reads_whole_numbers_and_names_an_unreadable_setting(self):
+        with mock.patch.dict(os.environ, {"DAYS": "30", "EMPTY": "", "WORD": "ninety"}):
+            self.assertEqual(env_int("DAYS", 90), 30)
+            self.assertEqual(env_int("EMPTY", 90), 90)
+            self.assertEqual(env_int("UNSET_NUMBER", 90), 90)
+            with self.assertRaises(RuntimeError) as raised:
+                env_int("WORD", 90)
+        self.assertIn("WORD must be a whole number, not 'ninety'", str(raised.exception))
 
     def test_development_generates_a_different_key_on_every_start(self):
         first = self.start(SECRET_KEY=None).config["SECRET_KEY"]
@@ -95,16 +112,41 @@ class HealthTests(AppTestCase):
 
 
 class TransportSecurityTests(AppTestCase):
-    def test_https_settings_add_hsts_and_a_secure_cookie(self):
-        self.app.config["SESSION_COOKIE_SECURE"] = True
-        response = self.client.get("/consent")
+    def https_app(self):
+        return create_app({
+            "TESTING": True, "SECRET_KEY": "k" * 32, "SESSION_COOKIE_SECURE": True,
+            "DATABASE": os.path.join(self._tmp.name, "https.db"),
+        })
+
+    def test_https_settings_add_hsts_and_a_host_bound_secure_cookie(self):
+        response = self.https_app().test_client().get("/consent")
         self.assertEqual(response.headers["Strict-Transport-Security"], "max-age=31536000")
-        self.assertIn("Secure", response.headers["Set-Cookie"])
+        cookie = response.headers["Set-Cookie"]
+        # The "__Host-" prefix is honoured only with Secure, Path=/, and no Domain.
+        self.assertTrue(cookie.startswith("__Host-session="), cookie)
+        attributes = [part.strip() for part in cookie.split(";")[1:]]
+        self.assertIn("Secure", attributes)
+        self.assertIn("HttpOnly", attributes)
+        self.assertIn("Path=/", attributes)
+        self.assertFalse([part for part in attributes if part.lower().startswith("domain")])
+
+    def test_a_whole_session_works_with_the_host_bound_cookie(self):
+        app = self.https_app()
+        client = app.test_client()
+        page = client.get("/consent", base_url="https://localhost")
+        token = page.get_data(as_text=True).split('name="csrf_token" value="')[1].split('"')[0]
+        response = client.post("/consent", base_url="https://localhost", data={
+            "adult": "yes", "agree": "yes", "csrf_token": token})
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(
+            client.get("/dashboard", base_url="https://localhost").status_code, 200)
 
     def test_plain_http_development_sends_neither(self):
         response = self.client.get("/consent")
         self.assertNotIn("Strict-Transport-Security", response.headers)
-        self.assertNotIn("Secure", response.headers["Set-Cookie"])
+        cookie = response.headers["Set-Cookie"]
+        self.assertTrue(cookie.startswith("session="), cookie)
+        self.assertNotIn("Secure", cookie)
 
 
 class JournalModeTests(AppTestCase):
@@ -117,34 +159,53 @@ class JournalModeTests(AppTestCase):
         config.update(settings)
         return create_app(config)
 
-    def test_write_ahead_logging_is_the_default(self):
-        self.assertEqual(self.journal_mode(), "wal")
+    def test_wal_is_trusted_only_on_releases_with_the_fix(self):
+        # Boundary values around 3.51.3 and the patch releases 3.44.6 and 3.50.7.
+        fixed = ((3, 51, 3), (3, 51, 4), (3, 52, 0), (4, 0, 0),
+                 (3, 50, 7), (3, 50, 8), (3, 44, 6), (3, 44, 7))
+        affected = ((3, 7, 0), (3, 44, 5), (3, 45, 0), (3, 46, 1), (3, 50, 6),
+                    (3, 51, 0), (3, 51, 2))
+        for version in fixed:
+            self.assertTrue(db.wal_is_safe(version), version)
+        for version in affected:
+            self.assertFalse(db.wal_is_safe(version), version)
 
-    def test_rollback_journal_can_be_selected_for_network_file_systems(self):
+    def test_auto_chooses_the_rollback_journal_on_an_affected_release(self):
+        self.assertEqual(db.journal_mode_for("AUTO", (3, 46, 1)), "DELETE")
+        self.assertEqual(db.journal_mode_for("AUTO", (3, 51, 3)), "WAL")
+        self.assertEqual(db.journal_mode_for("WAL", (3, 46, 1)), "WAL")       # explicit choice wins
+        self.assertEqual(db.journal_mode_for("DELETE", (3, 51, 3)), "DELETE")
+
+    def test_default_mode_matches_this_sqlite_release(self):
+        expected = "wal" if db.wal_is_safe() else "delete"
+        self.assertEqual(self.app.config["SQLITE_JOURNAL_MODE"], "AUTO")
+        self.assertEqual(self.journal_mode(), expected)
+
+    def test_mode_can_be_switched_in_both_directions_without_losing_data(self):
         self.consent()
-        app = self.restart(SQLITE_JOURNAL_MODE="DELETE")
-        self.assertEqual(self.journal_mode(app), "delete")
-        self.assertEqual(self.journal_mode(self.restart()), "wal")   # and switched back
-        self.assertEqual(self.count("participant"), 1)               # without losing data
+        self.assertEqual(self.journal_mode(self.restart(SQLITE_JOURNAL_MODE="WAL")), "wal")
+        self.assertEqual(self.journal_mode(self.restart(SQLITE_JOURNAL_MODE="DELETE")), "delete")
+        self.assertEqual(self.count("participant"), 1)
 
-    def test_reader_is_not_blocked_while_another_connection_is_writing(self):
-        participant = self.app.test_client()
+    def test_wal_reader_is_not_blocked_while_another_connection_is_writing(self):
+        app = self.restart(SQLITE_JOURNAL_MODE="WAL")
+        participant = app.test_client()
         self.consent(participant)
-        writer = sqlite3.connect(self.app.config["DATABASE"], timeout=0.2)
+        writer = sqlite3.connect(app.config["DATABASE"], timeout=0.2)
         writer.execute("BEGIN EXCLUSIVE")   # hold the write lock, as a slow request would
         writer.execute("UPDATE participant SET status = 'completed'")
         try:
-            self.assertEqual(self.client.get("/healthz").status_code, 200)
-            page = participant.get("/dashboard")           # reads the participant's progress
-            self.assertEqual(page.status_code, 200)
+            self.assertEqual(app.test_client().get("/healthz").status_code, 200)
+            self.assertEqual(participant.get("/dashboard").status_code, 200)
         finally:
             writer.rollback()
             writer.close()
 
     def test_reset_keeps_the_configured_mode_and_leaves_no_stale_log(self):
-        self.consent()
-        self.app.test_cli_runner().invoke(args=["reset-db", "--yes"])
-        self.assertEqual(self.journal_mode(), "wal")
+        app = self.restart(SQLITE_JOURNAL_MODE="WAL")
+        self.consent(app.test_client())
+        app.test_cli_runner().invoke(args=["reset-db", "--yes"])
+        self.assertEqual(self.journal_mode(app), "wal")
         self.assertEqual(self.count("participant"), 0)
         self.assertEqual(self.count("scenario"), 30)
 
@@ -152,7 +213,7 @@ class JournalModeTests(AppTestCase):
         for mode in ("WAL", "DELETE"):
             with self.subTest(mode=mode):
                 app = self.restart(SQLITE_JOURNAL_MODE=mode)
-                app.config["BACKUP_KEY"] = Fernet.generate_key().decode()
+                app.config["BACKUP_KEY"] = new_backup_key()
                 app.config["BACKUP_DIR"] = os.path.join(self._tmp.name, f"backups-{mode}")
                 runner = app.test_cli_runner()
                 self.assertEqual(runner.invoke(args=["backup-db"]).exit_code, 0)

@@ -1,0 +1,18 @@
+# Exact versions of every package in the production image, direct and indirect.
+# requirements.txt names what PhishAware imports; this file fixes what those
+# packages pull in, so that an image built next month holds the same code as
+# the image that was tested. The CI pipeline compares this list with "pip freeze"
+# inside the built image and fails when they differ.
+#
+# To upgrade: change a version here, push, and let the pipeline test the result.
+blinker==1.9.0
+cffi==2.1.1
+click==8.5.0
+cryptography==50.0.2
+Flask==3.1.3
+gunicorn==26.2.0
+itsdangerous==2.2.0
+Jinja2==3.1.6
+MarkupSafe==3.0.4
+pycparser==3.0
+Werkzeug==3.1.9

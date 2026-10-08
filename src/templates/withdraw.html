@@ -3,7 +3,7 @@
 {% block content %}
 <section class="sheet sheet--narrow">
   <h1>Withdraw and delete your data?</h1>
-  <p class="lead">This permanently deletes your consent record, answers, and scores. There is no penalty, and it cannot be undone.</p>
+  <p class="lead">This deletes your consent record, answers, scores, and ratings at once. Encrypted backup copies follow within {{ backup_days }} days. There is no penalty, and it cannot be undone.</p>
   <form method="post" action="{{ url_for('consent.withdraw') }}" data-once>
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <div class="actions">

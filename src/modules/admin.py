@@ -26,13 +26,13 @@ from flask.cli import with_appcontext
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from src import repository
-from src.modules.results import BAR_FULL_WIDTH, chart_rows
+from src.modules.results import BAR_FULL_WIDTH, CHART_LABEL_SPACE, chart_rows
 from src.modules.scoring import (
     CUE_CATEGORIES, cohort_summary, cue_comparison, describe, score_attempt,
 )
 from src.modules.security import (
-    current_admin, end_admin_session, is_valid_admin_username, require_admin,
-    start_admin_session,
+    current_admin, forget_client_data, is_valid_admin_username, require_admin,
+    sign_out_admin, start_admin_session,
 )
 
 bp = Blueprint("admin", __name__, url_prefix="/admin")
@@ -59,7 +59,12 @@ def _decoy_hash():
     Verifying it takes as long as verifying a real hash, so response time does
     not reveal whether an account exists.
     """
-    return generate_password_hash(secrets.token_urlsafe(32))
+    return hash_password(secrets.token_urlsafe(32))
+
+
+def hash_password(password):
+    """Salted scrypt hash with the configured cost parameters (NFR-10)."""
+    return generate_password_hash(password, method=current_app.config["ADMIN_PASSWORD_METHOD"])
 
 
 def _window_start():
@@ -105,7 +110,7 @@ def build_dashboard():
             rows=chart_rows(cue_comparison(
                 repository.cohort_responses("pre"), repository.cohort_responses("post")
             )),
-            chart_width=BAR_FULL_WIDTH + 60,
+            chart_width=BAR_FULL_WIDTH + CHART_LABEL_SPACE,
         )
     return data
 
@@ -162,8 +167,8 @@ def login():
 
 @bp.post("/logout")
 def logout():
-    end_admin_session()
-    return redirect(url_for("admin.login_form"))
+    sign_out_admin()
+    return forget_client_data(redirect(url_for("admin.login_form")))
 
 
 @bp.get("")
@@ -208,6 +213,6 @@ def create_admin_command(username, password):
         raise click.BadParameter(
             f"use at least {MIN_PASSWORD_LENGTH} characters", param_hint="--password"
         )
-    created = repository.save_admin(username, generate_password_hash(password))
+    created = repository.save_admin(username, hash_password(password))
     action = "created" if created else "updated; earlier sessions are signed out"
     click.echo(f"Administrator '{username}' {action}.")

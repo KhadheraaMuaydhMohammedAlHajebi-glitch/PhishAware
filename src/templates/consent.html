@@ -13,16 +13,30 @@
     </section>
     <section class="consent-block">
       <h2>What is stored</h2>
-      <p>A random ID, your answers, your scores, and your usability ratings. Nothing is stored until you agree below.</p>
+      <p>A random ID, your answers and the time of each, your scores, and your usability ratings. Nothing is stored until you agree below.</p>
     </section>
     <section class="consent-block">
       <h2>What is never collected</h2>
       <p>Your name, email address, student number, passwords, IP address, or demographic details.</p>
     </section>
     <section class="consent-block">
-      <h2>Your rights</h2>
-      <p>Taking part is voluntary and never graded. You can withdraw on any page, which permanently deletes every record linked to your random ID.</p>
+      <h2>How long it is kept</h2>
+      <p>Every record is deleted {{ retention_days }} days after you agree, or at once if you withdraw. Encrypted backup copies exist for up to {{ backup_days }} days longer.</p>
     </section>
+    <section class="consent-block">
+      <h2>Your rights</h2>
+      <p>Taking part is voluntary and never graded. You can withdraw on any page while your session lasts, with no penalty.</p>
+    </section>
+    <section class="consent-block">
+      <h2>Time limit</h2>
+      <p>Your session in this browser ends when you choose Finish, or after {{ session_hours }} hours without activity. After that your answers can no longer be linked to you, so they cannot be withdrawn individually.</p>
+    </section>
+    {% if contact %}
+    <section class="consent-block">
+      <h2>Questions</h2>
+      <p>Contact the researcher: {{ contact }}</p>
+    </section>
+    {% endif %}
   </div>
   <form method="post" action="{{ url_for('consent.give_consent') }}" class="consent-form" data-once>
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">

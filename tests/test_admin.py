@@ -45,7 +45,10 @@ class AdminAccessTests(AppTestCase):
         page = self.client.get("/admin")
         self.assertEqual(page.status_code, 200)
         self.assertIn(b"Pilot results", page.data)
-        self.assertIn(f"Administrator {ADMIN_USER}".encode(), page.data)
+        # The top bar names the account; narrow screens show the short form.
+        self.assertIn(
+            f'<span class="only-wide">Administrator</span>'
+            f'<span class="only-narrow">Admin</span> {ADMIN_USER}'.encode(), page.data)
         self.assertEqual(page.headers["Cache-Control"], "no-store")
 
     def test_username_is_trimmed_and_case_insensitive(self):
@@ -59,6 +62,14 @@ class AdminAccessTests(AppTestCase):
             self.assertIn(admin.FAILED_MESSAGE.encode(), response.data)
         self.assertEqual(self.client.get("/admin").status_code, 302)
 
+    def test_password_is_checked_exactly_as_typed(self):
+        spaced = "  two spaces around, Mixed Case  "
+        self.create_admin(username="exact", password=spaced)
+        for altered in (spaced.strip(), spaced.lower(), spaced[:20]):
+            self.assertEqual(
+                self.admin_sign_in(username="exact", password=altered).status_code, 401)
+        self.assertEqual(self.admin_sign_in(username="exact", password=spaced).status_code, 302)
+
     def test_password_is_stored_only_as_a_salted_hash(self):
         self.create_admin(username="second-admin")
         hashes = [row["password_hash"] for row in self.query(
@@ -68,6 +79,17 @@ class AdminAccessTests(AppTestCase):
         for stored in hashes:
             self.assertTrue(stored.startswith("scrypt:"))
             self.assertNotIn(ADMIN_PASSWORD, stored)
+
+    def test_production_hash_uses_a_setting_from_the_owasp_cheat_sheet(self):
+        from src.config import Config
+        self.assertEqual(Config.ADMIN_PASSWORD_METHOD, "scrypt:32768:8:3")
+        self.app.config["ADMIN_PASSWORD_METHOD"] = Config.ADMIN_PASSWORD_METHOD
+        self.create_admin(username="production-admin")
+        stored = self.query(
+            "SELECT password_hash FROM admin_user WHERE username = 'production-admin'"
+        )[0]["password_hash"]
+        self.assertTrue(stored.startswith("scrypt:32768:8:3$"))
+        self.assertEqual(self.admin_sign_in(username="production-admin").status_code, 302)
 
     def test_sixth_attempt_is_blocked_even_with_the_right_password(self):
         for _ in range(5):
@@ -126,6 +148,24 @@ class AdminAccessTests(AppTestCase):
         with self.client.session_transaction() as session:
             self.assertGreater(session["admin_seen"], int(time.time()) - 5)
 
+    def test_session_ends_eight_hours_after_sign_in_however_active(self):
+        self.admin_sign_in()
+        with self.client.session_transaction() as session:
+            session["admin_since"] = int(time.time()) - 8 * 3600 + 60   # one minute left
+        self.assertEqual(self.client.get("/admin").status_code, 200)
+        with self.client.session_transaction() as session:
+            session["admin_since"] = int(time.time()) - 8 * 3600 - 1
+            session["admin_seen"] = int(time.time())                    # active a moment ago
+        response = self.client.get("/admin")
+        self.assertEqual(response.status_code, 302)
+        self.assertIn("/admin/login?expired=1", response.headers["Location"])
+
+    def test_session_without_a_sign_in_time_is_refused(self):
+        self.admin_sign_in()
+        with self.client.session_transaction() as session:
+            del session["admin_since"]
+        self.assertEqual(self.client.get("/admin").status_code, 302)
+
     def test_changing_the_password_signs_out_open_sessions(self):
         self.admin_sign_in()
         result = self.create_admin(password="a-different-long-password")
@@ -142,6 +182,32 @@ class AdminAccessTests(AppTestCase):
         response = self.client.post("/admin/logout", data={"csrf_token": self.token()})
         self.assertEqual(response.status_code, 302)
         self.assertEqual(self.client.get("/admin").status_code, 302)
+
+    def test_copy_of_the_cookie_is_refused_after_sign_out(self):
+        self.admin_sign_in()
+        copy = self.copy_session()                       # taken while signed in
+        self.assertEqual(copy.get("/admin").status_code, 200)
+        response = self.client.post("/admin/logout", data={"csrf_token": self.token()})
+        self.assertEqual(response.headers["Clear-Site-Data"], '"cache", "storage"')
+        for url in ("/admin", "/admin/export.csv"):
+            self.assertEqual(copy.get(url).status_code, 302, url)
+
+    def test_sign_out_ends_the_sessions_on_every_device(self):
+        self.admin_sign_in()
+        other_device = self.app.test_client()
+        self.admin_sign_in(client=other_device)
+        self.client.post("/admin/logout", data={"csrf_token": self.token()})
+        response = other_device.get("/admin")
+        self.assertEqual(response.status_code, 302)
+        self.assertIn("/admin/login?expired=1", response.headers["Location"])
+        self.assertEqual(self.admin_sign_in(client=other_device).status_code, 302)
+
+    def test_sign_out_without_a_session_changes_nothing(self):
+        before = self.query("SELECT session_stamp FROM admin_user")[0]["session_stamp"]
+        response = self.client.post("/admin/logout", data={"csrf_token": self.token()})
+        self.assertEqual(response.status_code, 302)
+        after = self.query("SELECT session_stamp FROM admin_user")[0]["session_stamp"]
+        self.assertEqual(before, after)
 
     def test_signed_in_administrator_skips_the_sign_in_form(self):
         self.admin_sign_in()
@@ -225,7 +291,7 @@ class AdminReportingTests(AppTestCase):
         self.assertIn("57% of those who consented", page)  # 4 of 7
         with self.app.app_context():
             self.assertEqual(repository.funnel_counts(), {
-                "consented": 7, "pre_done": 6, "practice_done": 5,
+                "consented": 7, "pre_done": 6, "lessons_opened": 5, "practice_done": 5,
                 "post_done": 5, "survey_done": 4})
 
     def test_identical_gains_are_reported_without_an_effect_size(self):

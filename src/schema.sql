@@ -53,6 +53,13 @@ CREATE TABLE IF NOT EXISTS response (
     UNIQUE (attempt_id, scenario_id)
 );
 
+-- M3: when a participant first opened the lessons (FR-04). The practice phase
+-- opens only after this, so everyone who practised was offered the lessons.
+CREATE TABLE IF NOT EXISTS lesson_view (
+    participant_id TEXT PRIMARY KEY REFERENCES participant(id) ON DELETE CASCADE,
+    viewed_at      TEXT NOT NULL
+);
+
 -- M6: System Usability Scale ratings (FR-09), one row per participant.
 CREATE TABLE IF NOT EXISTS sus_response (
     participant_id TEXT PRIMARY KEY REFERENCES participant(id) ON DELETE CASCADE,
@@ -70,14 +77,21 @@ CREATE TABLE IF NOT EXISTS sus_response (
     submitted_at TEXT NOT NULL
 );
 
+-- M1: participants who chose Finish. Their session cookie is refused from then
+-- on, even if a copy of it exists (NFR-08). Only the fact is stored, not a time.
+CREATE TABLE IF NOT EXISTS session_end (
+    participant_id TEXT PRIMARY KEY REFERENCES participant(id) ON DELETE CASCADE
+);
+
 -- M7: administrator accounts (FR-11). Deliberately unrelated to participant
--- data so accounts can never be joined to individual learners. "created_at" is
--- refreshed whenever the password changes, which signs out older sessions.
+-- data so accounts can never be joined to individual learners. "session_stamp"
+-- changes whenever the password changes and at every sign-out; a session is
+-- valid only while it carries the current stamp.
 CREATE TABLE IF NOT EXISTS admin_user (
     id            INTEGER PRIMARY KEY AUTOINCREMENT,
     username      TEXT NOT NULL UNIQUE,
     password_hash TEXT NOT NULL,
-    created_at    TEXT NOT NULL
+    session_stamp TEXT NOT NULL
 );
 
 -- M7: failed sign-in attempts, kept only long enough to rate-limit guessing

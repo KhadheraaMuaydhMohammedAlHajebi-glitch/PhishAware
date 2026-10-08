@@ -12,7 +12,8 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 WORKDIR /app
 
 # Dependencies first: this layer is rebuilt only when a requirements file changes.
-COPY requirements.txt requirements-prod.txt ./
+# constraints.txt pins every package, including the indirect ones.
+COPY requirements.txt requirements-prod.txt constraints.txt ./
 RUN pip install -r requirements-prod.txt
 
 # Application code and content. Tests, evaluation tools, and documents are kept

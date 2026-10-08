@@ -1,9 +1,13 @@
+{# The answer is chosen first and sent with a separate button, so a slip of the
+   finger can be corrected before it counts (WCAG 3.3.4 Error Prevention). #}
 <form method="post" action="{{ submit_url }}" class="decision" data-once>
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
   <input type="hidden" name="scenario_id" value="{{ scenario.id }}">
-  <p class="decision__prompt" id="decision-prompt">Is this {{ 'email' if scenario.channel == 'email' else 'web page' }} phishing or legitimate?</p>
-  <div class="decision__buttons" role="group" aria-labelledby="decision-prompt">
-    <button type="submit" name="answer" value="phishing" class="btn btn--phish">Phishing</button>
-    <button type="submit" name="answer" value="legitimate" class="btn btn--legit">Legitimate</button>
-  </div>
+  <fieldset class="decision__choices">
+    <legend class="decision__prompt">Is this {{ 'email' if scenario.channel == 'email' else 'web page' }} phishing or legitimate?</legend>
+    <label class="choice"><input type="radio" name="answer" value="phishing" required> <span>Phishing</span></label>
+    <label class="choice"><input type="radio" name="answer" value="legitimate" required> <span>Legitimate</span></label>
+  </fieldset>
+  <button type="submit" class="btn btn--primary btn--block">Submit answer</button>
+  <p class="decision__note">You can change your choice until you submit. Submitted answers are final.</p>
 </form>

@@ -34,11 +34,21 @@ def create_participant(participant_id, consent_version, choose_order):
 
 
 def get_participant(participant_id):
+    """The participant row, with "session_ended" set once they have finished."""
     return get_db().execute(
-        "SELECT seq, id, consent_version, consented_at, form_order, status "
+        "SELECT seq, id, consent_version, consented_at, form_order, status, "
+        "EXISTS (SELECT 1 FROM session_end WHERE participant_id = participant.id) "
+        "AS session_ended "
         "FROM participant WHERE id = ?",
         (participant_id,),
     ).fetchone()
+
+
+def end_session(participant_id):
+    """Record that the participant finished; their session cookie is refused from now on."""
+    db = get_db()
+    db.execute("INSERT OR IGNORE INTO session_end (participant_id) VALUES (?)", (participant_id,))
+    db.commit()
 
 
 def delete_participant(participant_id):
@@ -168,6 +178,24 @@ def responses_with_cues(attempt_id):
     return [(row["cue"], bool(row["is_correct"])) for row in rows]
 
 
+# Lessons (M3) -------------------------------------------------------------------
+def record_lesson_view(participant_id):
+    """Remember that the participant opened the lessons; later visits change nothing."""
+    db = get_db()
+    db.execute(
+        "INSERT OR IGNORE INTO lesson_view (participant_id, viewed_at) VALUES (?, ?)",
+        (participant_id, utc_now()),
+    )
+    db.commit()
+
+
+def lessons_viewed(participant_id):
+    row = get_db().execute(
+        "SELECT 1 FROM lesson_view WHERE participant_id = ?", (participant_id,)
+    ).fetchone()
+    return row is not None
+
+
 # Usability survey (M6) ---------------------------------------------------------
 def save_sus(participant_id, ratings, score):
     """Store the ten ratings once and mark the participant as completed.
@@ -248,6 +276,7 @@ def funnel_counts():
         "(SELECT COUNT(*) FROM participant) AS consented, "
         "(SELECT COUNT(*) FROM attempt WHERE phase = 'pre' "
         "AND completed_at IS NOT NULL) AS pre_done, "
+        "(SELECT COUNT(*) FROM lesson_view) AS lessons_opened, "
         "(SELECT COUNT(*) FROM attempt WHERE phase = 'practice' "
         "AND completed_at IS NOT NULL) AS practice_done, "
         "(SELECT COUNT(*) FROM attempt WHERE phase = 'post' "
@@ -293,7 +322,7 @@ def export_records():
 # Administrators (M7) ----------------------------------------------------------
 def get_admin(username):
     return get_db().execute(
-        "SELECT username, password_hash, created_at FROM admin_user WHERE username = ?",
+        "SELECT username, password_hash, session_stamp FROM admin_user WHERE username = ?",
         (username,),
     ).fetchone()
 
@@ -301,19 +330,31 @@ def get_admin(username):
 def save_admin(username, password_hash):
     """Create the account or replace its password. Returns True when it is new.
 
-    A new "created_at" on every change lets require_admin sign out sessions that
-    were opened with the previous password.
+    A new stamp on every change lets require_admin sign out sessions that were
+    opened with the previous password.
     """
     db = get_db()
     is_new = get_admin(username) is None
     db.execute(
-        "INSERT INTO admin_user (username, password_hash, created_at) VALUES (?, ?, ?) "
+        "INSERT INTO admin_user (username, password_hash, session_stamp) VALUES (?, ?, ?) "
         "ON CONFLICT(username) DO UPDATE SET password_hash = excluded.password_hash, "
-        "created_at = excluded.created_at",
-        (username, password_hash, datetime.now(timezone.utc).isoformat(timespec="microseconds")),
+        "session_stamp = excluded.session_stamp",
+        (username, password_hash, _new_stamp()),
     )
     db.commit()
     return is_new
+
+
+def renew_admin_stamp(username):
+    """Invalidate every session of this administrator (used at sign-out)."""
+    db = get_db()
+    db.execute(
+        "UPDATE admin_user SET session_stamp = ? WHERE username = ?", (_new_stamp(), username))
+    db.commit()
+
+
+def _new_stamp():
+    return datetime.now(timezone.utc).isoformat(timespec="microseconds")
 
 
 def record_failed_login(username):
