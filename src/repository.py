@@ -34,11 +34,21 @@ def create_participant(participant_id, consent_version, choose_order):
 
 
 def get_participant(participant_id):
+    """The participant row, with "session_ended" set once they have finished."""
     return get_db().execute(
-        "SELECT seq, id, consent_version, consented_at, form_order, status "
+        "SELECT seq, id, consent_version, consented_at, form_order, status, "
+        "EXISTS (SELECT 1 FROM session_end WHERE participant_id = participant.id) "
+        "AS session_ended "
         "FROM participant WHERE id = ?",
         (participant_id,),
     ).fetchone()
+
+
+def end_session(participant_id):
+    """Record that the participant finished; their session cookie is refused from now on."""
+    db = get_db()
+    db.execute("INSERT OR IGNORE INTO session_end (participant_id) VALUES (?)", (participant_id,))
+    db.commit()
 
 
 def delete_participant(participant_id):
@@ -48,7 +58,26 @@ def delete_participant(participant_id):
     db.commit()
 
 
+def participants_before(cutoff):
+    """Number of participants whose consent is older than the cutoff time (NFR-12)."""
+    row = get_db().execute(
+        "SELECT COUNT(*) AS n FROM participant WHERE consented_at < ?", (cutoff,)
+    ).fetchone()
+    return row["n"]
+
+
+def delete_participants_before(cutoff):
+    """Retention job: ON DELETE CASCADE removes every linked record, as in withdrawal."""
+    db = get_db()
+    db.execute("DELETE FROM participant WHERE consented_at < ?", (cutoff,))
+    db.commit()
+
+
 # Scenarios ------------------------------------------------------------------
+def scenario_count():
+    return get_db().execute("SELECT COUNT(*) AS n FROM scenario").fetchone()["n"]
+
+
 def scenarios_for_pool(pool):
     return get_db().execute(
         "SELECT id, pool, position, channel, cue, difficulty, label, content_json "
@@ -149,6 +178,24 @@ def responses_with_cues(attempt_id):
     return [(row["cue"], bool(row["is_correct"])) for row in rows]
 
 
+# Lessons (M3) -------------------------------------------------------------------
+def record_lesson_view(participant_id):
+    """Remember that the participant opened the lessons; later visits change nothing."""
+    db = get_db()
+    db.execute(
+        "INSERT OR IGNORE INTO lesson_view (participant_id, viewed_at) VALUES (?, ?)",
+        (participant_id, utc_now()),
+    )
+    db.commit()
+
+
+def lessons_viewed(participant_id):
+    row = get_db().execute(
+        "SELECT 1 FROM lesson_view WHERE participant_id = ?", (participant_id,)
+    ).fetchone()
+    return row is not None
+
+
 # Usability survey (M6) ---------------------------------------------------------
 def save_sus(participant_id, ratings, score):
     """Store the ten ratings once and mark the participant as completed.
@@ -177,7 +224,7 @@ def get_sus(participant_id):
 
 
 # Cohort analytics (M5) --------------------------------------------------------
-# None of these queries selects a participant identifier (NFR-11).
+# None of these queries returns a participant identifier (NFR-11).
 def participant_count():
     return get_db().execute("SELECT COUNT(*) AS n FROM participant").fetchone()["n"]
 
@@ -220,3 +267,125 @@ def cohort_responses(phase):
         (phase,),
     ).fetchall()
     return [(row["cue"], bool(row["is_correct"])) for row in rows]
+
+
+def funnel_counts():
+    """How many participants reached each step (counts only, no identifiers)."""
+    row = get_db().execute(
+        "SELECT "
+        "(SELECT COUNT(*) FROM participant) AS consented, "
+        "(SELECT COUNT(*) FROM attempt WHERE phase = 'pre' "
+        "AND completed_at IS NOT NULL) AS pre_done, "
+        "(SELECT COUNT(*) FROM lesson_view) AS lessons_opened, "
+        "(SELECT COUNT(*) FROM attempt WHERE phase = 'practice' "
+        "AND completed_at IS NOT NULL) AS practice_done, "
+        "(SELECT COUNT(*) FROM attempt WHERE phase = 'post' "
+        "AND completed_at IS NOT NULL) AS post_done, "
+        "(SELECT COUNT(*) FROM sus_response) AS survey_done"
+    ).fetchone()
+    return dict(row)
+
+
+# De-identified export (M7) ----------------------------------------------------
+def export_records():
+    """De-identified records for participants who finished both assessments (FR-11).
+
+    The random ID is used only inside this function, to gather each participant's
+    rows, and is never returned. Each record holds the form order, the number of
+    correct answers per phase and cue, the number of items, and the SUS score.
+    """
+    rows = get_db().execute(
+        "SELECT a.participant_id AS pid, p.form_order AS form_order, a.phase AS phase, "
+        "s.cue AS cue, SUM(r.is_correct) AS correct, COUNT(*) AS total, "
+        "(SELECT u.score FROM sus_response u WHERE u.participant_id = a.participant_id) AS sus "
+        "FROM attempt a "
+        "JOIN participant p ON p.id = a.participant_id "
+        "JOIN response r ON r.attempt_id = a.id "
+        "JOIN scenario s ON s.id = r.scenario_id "
+        "WHERE a.phase IN ('pre', 'post') AND a.participant_id IN ("
+        "SELECT participant_id FROM attempt "
+        "WHERE phase IN ('pre', 'post') AND completed_at IS NOT NULL "
+        "GROUP BY participant_id HAVING COUNT(*) = 2) "
+        "GROUP BY a.participant_id, a.phase, s.cue ORDER BY p.seq"
+    ).fetchall()
+    grouped = {}
+    for row in rows:
+        record = grouped.setdefault(row["pid"], {
+            "form_order": row["form_order"], "sus": row["sus"],
+            "pre": {}, "post": {}, "pre_total": 0, "post_total": 0,
+        })
+        record[row["phase"]][row["cue"]] = row["correct"]
+        record[f"{row['phase']}_total"] += row["total"]
+    return list(grouped.values())
+
+
+# Administrators (M7) ----------------------------------------------------------
+def get_admin(username):
+    return get_db().execute(
+        "SELECT username, password_hash, session_stamp FROM admin_user WHERE username = ?",
+        (username,),
+    ).fetchone()
+
+
+def save_admin(username, password_hash):
+    """Create the account or replace its password. Returns True when it is new.
+
+    A new stamp on every change lets require_admin sign out sessions that were
+    opened with the previous password.
+    """
+    db = get_db()
+    is_new = get_admin(username) is None
+    db.execute(
+        "INSERT INTO admin_user (username, password_hash, session_stamp) VALUES (?, ?, ?) "
+        "ON CONFLICT(username) DO UPDATE SET password_hash = excluded.password_hash, "
+        "session_stamp = excluded.session_stamp",
+        (username, password_hash, _new_stamp()),
+    )
+    db.commit()
+    return is_new
+
+
+def renew_admin_stamp(username):
+    """Invalidate every session of this administrator (used at sign-out)."""
+    db = get_db()
+    db.execute(
+        "UPDATE admin_user SET session_stamp = ? WHERE username = ?", (_new_stamp(), username))
+    db.commit()
+
+
+def _new_stamp():
+    return datetime.now(timezone.utc).isoformat(timespec="microseconds")
+
+
+def record_failed_login(username):
+    db = get_db()
+    db.execute(
+        "INSERT INTO admin_login_attempt (username, attempted_at) VALUES (?, ?)",
+        (username, utc_now()),
+    )
+    db.commit()
+
+
+def failed_login_count(since, username=None):
+    """Failed sign-in attempts since a time: for one username, or for all of them."""
+    if username is None:
+        row = get_db().execute(
+            "SELECT COUNT(*) AS n FROM admin_login_attempt WHERE attempted_at >= ?", (since,)
+        ).fetchone()
+    else:
+        row = get_db().execute(
+            "SELECT COUNT(*) AS n FROM admin_login_attempt "
+            "WHERE username = ? AND attempted_at >= ?",
+            (username, since),
+        ).fetchone()
+    return row["n"]
+
+
+def clear_failed_logins(username=None, before=None):
+    """Forget failed attempts: all of one username's, or everything older than a time."""
+    db = get_db()
+    if username is not None:
+        db.execute("DELETE FROM admin_login_attempt WHERE username = ?", (username,))
+    if before is not None:
+        db.execute("DELETE FROM admin_login_attempt WHERE attempted_at < ?", (before,))
+    db.commit()

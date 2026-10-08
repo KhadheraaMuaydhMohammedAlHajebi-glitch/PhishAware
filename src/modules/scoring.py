@@ -125,3 +125,18 @@ def cohort_summary(records):
         "t": round(mean_gain / (sd_gain / math.sqrt(len(gains))), 2) if sd_gain > 0 else None,
         "mean_sus": round(statistics.fmean(sus), 1) if sus else None,
     }
+
+
+def describe(values):
+    """Mean, median, and sample standard deviation of a list of numbers (O4).
+
+    The standard deviation needs two values, so it is None for a single value.
+    """
+    values = list(values)
+    if not values:
+        raise ValueError("at least one value is required")
+    return {
+        "mean": round(statistics.fmean(values), 1),
+        "median": round(statistics.median(values), 1),
+        "sd": round(statistics.stdev(values), 1) if len(values) > 1 else None,
+    }

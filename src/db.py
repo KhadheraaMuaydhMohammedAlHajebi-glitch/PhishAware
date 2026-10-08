@@ -24,6 +24,38 @@ _SEED_SQL = (
 )
 
 
+# PRAGMA statements cannot take "?" parameters, so each allowed mode has its own
+# constant statement and no SQL text is ever assembled from a setting.
+_JOURNAL_SQL = {
+    "WAL": "PRAGMA journal_mode = WAL",
+    "DELETE": "PRAGMA journal_mode = DELETE",
+}
+
+
+def wal_is_safe(version=sqlite3.sqlite_version_info):
+    """True when this SQLite release contains the fix for the "WAL-reset bug".
+
+    SQLite's documentation (sqlite.org/wal.html, section 11) describes a rare race
+    between connections that write or checkpoint at the same instant; it can lose
+    committed changes from a database in WAL mode. Releases 3.7.0 to 3.51.2 are
+    affected. The fix is in 3.51.3 and later and in the patch releases 3.44.6
+    and 3.50.7.
+    """
+    version = tuple(version[:3])
+    return (
+        version >= (3, 51, 3)
+        or (3, 50, 7) <= version < (3, 51, 0)
+        or (3, 44, 6) <= version < (3, 45, 0)
+    )
+
+
+def journal_mode_for(setting, version=sqlite3.sqlite_version_info):
+    """Resolve the configured journal mode; AUTO depends on the SQLite release."""
+    if setting == "AUTO":
+        return "WAL" if wal_is_safe(version) else "DELETE"
+    return setting
+
+
 def get_db():
     """Return one connection per request, creating it on first use."""
     if "db" not in g:
@@ -32,6 +64,9 @@ def get_db():
         # SQLite disables foreign keys by default; they are needed for the
         # ON DELETE CASCADE that implements withdrawal (FR-10).
         connection.execute("PRAGMA foreign_keys = ON")
+        # Overwrite deleted rows with zeros, so that a withdrawn or expired
+        # record does not linger in the file's unused pages (FR-10, NFR-12).
+        connection.execute("PRAGMA secure_delete = ON")
         g.db = connection
     return g.db
 
@@ -63,13 +98,33 @@ def seed_scenarios(connection, path):
     return len(bank["scenarios"])
 
 
+def ensure_schema():
+    """Create any table or index that is missing.
+
+    Every statement in schema.sql is IF NOT EXISTS, so running the script again
+    is harmless. Running it on each start upgrades a database that an earlier
+    release created, for example by adding the tables that M7 introduced.
+    """
+    get_db().executescript(SCHEMA_FILE.read_text(encoding="utf-8"))
+
+
 def init_db():
     """Create tables (if missing) and seed the scenario bank."""
     connection = get_db()
-    connection.executescript(SCHEMA_FILE.read_text(encoding="utf-8"))
+    ensure_schema()
     count = seed_scenarios(connection, current_app.config["SCENARIO_FILE"])
     connection.commit()
     return count
+
+
+def apply_journal_mode():
+    """Set the journal mode chosen in the configuration; returns the mode in effect.
+
+    The mode is stored in the database file, so setting it once at start-up is
+    enough for every later connection.
+    """
+    mode = journal_mode_for(current_app.config["SQLITE_JOURNAL_MODE"])
+    return get_db().execute(_JOURNAL_SQL[mode]).fetchone()[0].upper()
 
 
 def database_ready():
@@ -96,8 +151,11 @@ def init_db_command():
 def reset_db_command():
     """Development only: delete the database file and rebuild it."""
     close_db()
-    Path(current_app.config["DATABASE"]).unlink(missing_ok=True)
+    database = current_app.config["DATABASE"]
+    for suffix in ("", "-wal", "-shm"):  # the write-ahead log lives beside the database
+        Path(database + suffix).unlink(missing_ok=True)
     count = init_db()
+    apply_journal_mode()
     click.echo(f"Database rebuilt: {count} scenarios loaded, no participant data.")
 
 

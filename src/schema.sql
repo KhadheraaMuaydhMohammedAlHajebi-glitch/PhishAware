@@ -53,6 +53,13 @@ CREATE TABLE IF NOT EXISTS response (
     UNIQUE (attempt_id, scenario_id)
 );
 
+-- M3: when a participant first opened the lessons (FR-04). The practice phase
+-- opens only after this, so everyone who practised was offered the lessons.
+CREATE TABLE IF NOT EXISTS lesson_view (
+    participant_id TEXT PRIMARY KEY REFERENCES participant(id) ON DELETE CASCADE,
+    viewed_at      TEXT NOT NULL
+);
+
 -- M6: System Usability Scale ratings (FR-09), one row per participant.
 CREATE TABLE IF NOT EXISTS sus_response (
     participant_id TEXT PRIMARY KEY REFERENCES participant(id) ON DELETE CASCADE,
@@ -70,16 +77,33 @@ CREATE TABLE IF NOT EXISTS sus_response (
     submitted_at TEXT NOT NULL
 );
 
--- M7 (planned for release 0.6): administrator accounts. Deliberately unrelated
--- to participant data so accounts can never be joined to individual learners.
+-- M1: participants who chose Finish. Their session cookie is refused from then
+-- on, even if a copy of it exists (NFR-08). Only the fact is stored, not a time.
+CREATE TABLE IF NOT EXISTS session_end (
+    participant_id TEXT PRIMARY KEY REFERENCES participant(id) ON DELETE CASCADE
+);
+
+-- M7: administrator accounts (FR-11). Deliberately unrelated to participant
+-- data so accounts can never be joined to individual learners. "session_stamp"
+-- changes whenever the password changes and at every sign-out; a session is
+-- valid only while it carries the current stamp.
 CREATE TABLE IF NOT EXISTS admin_user (
     id            INTEGER PRIMARY KEY AUTOINCREMENT,
     username      TEXT NOT NULL UNIQUE,
     password_hash TEXT NOT NULL,
-    created_at    TEXT NOT NULL
+    session_stamp TEXT NOT NULL
+);
+
+-- M7: failed sign-in attempts, kept only long enough to rate-limit guessing
+-- (NFR-10). The key is the attempted username, never an IP address (NFR-11).
+CREATE TABLE IF NOT EXISTS admin_login_attempt (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    username     TEXT NOT NULL,
+    attempted_at TEXT NOT NULL
 );
 
 -- Indexes support the NFR-01 response-time target.
 CREATE INDEX IF NOT EXISTS idx_attempt_participant ON attempt (participant_id);
 CREATE INDEX IF NOT EXISTS idx_response_attempt    ON response (attempt_id);
 CREATE INDEX IF NOT EXISTS idx_scenario_pool       ON scenario (pool, position);
+CREATE INDEX IF NOT EXISTS idx_login_attempt       ON admin_login_attempt (username, attempted_at);

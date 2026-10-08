@@ -12,7 +12,7 @@
   <div>
     <p class="result__title">{{ 'Correct. Well spotted.' if correct else 'Not quite. Here is what to look for.' }}</p>
     <p>You answered <strong>{{ answer|capitalize }}</strong>. This {{ 'email' if scenario.channel == 'email' else 'web page' }} is
-      <span class="verdict verdict--{{ scenario.label }}">{{ scenario.label|capitalize }}</span>, and the cue it tests is {{ cue_label|lower }}.</p>
+      <span class="nowrap"><span class="verdict verdict--{{ scenario.label }}">{{ scenario.label|capitalize }}</span>,</span> and the cue it tests is {{ cue_label|lower }}.</p>
   </div>
 </div>
 <div class="workspace">
@@ -23,14 +23,14 @@
   <aside class="workspace__side">
     <div class="panel">
       <h2 class="panel__title">Why</h2>
-      <p>{{ scenario.feedback.explanation }}</p>
+      <p>{{ scenario.feedback.explanation|addresses }}</p>
       <h3 class="panel__subtitle">{{ 'Red flags' if scenario.label == 'phishing' else 'Trust signals' }}</h3>
       <ul class="cue-list cue-list--{{ 'phish' if scenario.label == 'phishing' else 'legit' }}">
-        {% for cue in scenario.feedback.cues %}<li>{{ cue }}</li>{% endfor %}
+        {% for cue in scenario.feedback.cues %}<li>{{ cue|addresses }}</li>{% endfor %}
       </ul>
       <div class="safe-action">
         <h3 class="panel__subtitle">Safe action</h3>
-        <p>{{ scenario.feedback.safe_action }}</p>
+        <p>{{ scenario.feedback.safe_action|addresses }}</p>
       </div>
       {% if answered < total %}
       <a class="btn btn--primary btn--block" href="{{ url_for('practice.practice_item') }}">Next scenario ({{ answered + 1 }} of {{ total }})</a>

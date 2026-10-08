@@ -1,0 +1,16 @@
+{# Before-and-after bars per cue, shared by the learner's results page and the
+   administrator dashboard. Bar lengths are SVG width attributes because the
+   Content-Security-Policy forbids inline styles. Expects rows and chart_width. #}
+<div class="cue-chart">
+  {% for row in rows %}
+  <div class="cue-row">
+    <p class="cue-row__label">{{ row.label }}</p>
+    <svg class="cue-row__bars" viewBox="0 0 {{ chart_width }} 44" role="img" aria-label="{{ row.label }}: {{ row.pre }}% correct before training, {{ row.post }}% after training">
+      <rect class="bar bar--pre" x="0" y="2" width="{{ row.pre_width }}" height="16" rx="3"></rect>
+      <text class="bar__value" x="{{ row.pre_width + 8 }}" y="15">{{ row.pre }}%</text>
+      <rect class="bar bar--post" x="0" y="24" width="{{ row.post_width }}" height="16" rx="3"></rect>
+      <text class="bar__value" x="{{ row.post_width + 8 }}" y="37">{{ row.post }}%</text>
+    </svg>
+  </div>
+  {% endfor %}
+</div>

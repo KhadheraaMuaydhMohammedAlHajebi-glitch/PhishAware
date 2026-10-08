@@ -3,19 +3,23 @@
 No data is written until an adult participant explicitly consents. Consent
 creates a random UUID4 identifier; no name, email address, student number,
 or IP address is ever requested or stored. Withdrawal, offered on every page,
-permanently deletes all linked records through ON DELETE CASCADE.
+permanently deletes all linked records through ON DELETE CASCADE. Finishing
+ends the session in the browser and keeps the pseudonymous records.
 """
 
 import uuid
 
 from flask import (
-    Blueprint, current_app, g, redirect, render_template, request, session, url_for,
+    Blueprint, current_app, g, make_response, redirect, render_template, request, session,
+    url_for,
 )
 
 from src import repository
 from src.modules.progress import build_progress
 from src.modules.scoring import assign_form_order
-from src.modules.security import current_participant, get_csrf_token, require_consent
+from src.modules.security import (
+    current_participant, forget_client_data, get_csrf_token, require_consent,
+)
 
 bp = Blueprint("consent", __name__)
 
@@ -27,11 +31,20 @@ def index():
     return redirect(url_for("consent.consent_form"))
 
 
+def _consent_page(error=None):
+    return render_template(
+        "consent.html",
+        version=current_app.config["CONSENT_VERSION"],
+        contact=current_app.config["CONTACT"],
+        error=error,
+    )
+
+
 @bp.get("/consent")
 def consent_form():
     if current_participant() is not None:
         return redirect(url_for("consent.dashboard"))
-    return render_template("consent.html", version=current_app.config["CONSENT_VERSION"])
+    return _consent_page()
 
 
 @bp.post("/consent")
@@ -40,11 +53,8 @@ def give_consent():
     agreed = request.form.get("agree") == "yes"
     if not (adult and agreed):
         # FR-01: without both confirmations nothing is stored.
-        return render_template(
-            "consent.html",
-            version=current_app.config["CONSENT_VERSION"],
-            error="Confirm that you are 18 or older and that you agree to take part.",
-        ), 400
+        return _consent_page(
+            "Confirm that you are 18 or older and that you agree to take part."), 400
     participant_id = str(uuid.uuid4())  # FR-02: random and non-identifying
     order = repository.create_participant(
         participant_id, current_app.config["CONSENT_VERSION"], assign_form_order
@@ -80,4 +90,23 @@ def withdraw():
     repository.delete_participant(g.participant["id"])  # FR-10
     session.clear()
     current_app.logger.info("Participant withdrew; all linked records deleted.")
-    return render_template("withdrawn.html")
+    return forget_client_data(make_response(render_template("withdrawn.html")))
+
+
+@bp.post("/finish")
+@require_consent
+def finish():
+    """End the session; the pseudonymous records are kept.
+
+    On a shared computer the session cookie would otherwise let the next person
+    open this participant's results for up to two hours. The session is ended
+    on the server as well, so a copy of the cookie is refused too. Finishing is
+    offered after the last step, because it also ends the chance to resume or
+    withdraw.
+    """
+    if repository.get_sus(g.participant["id"]) is None:
+        return redirect(url_for("consent.dashboard"))
+    repository.end_session(g.participant["id"])
+    session.clear()
+    current_app.logger.info("Participant finished; the session was ended.")
+    return forget_client_data(make_response(render_template("finished.html")))

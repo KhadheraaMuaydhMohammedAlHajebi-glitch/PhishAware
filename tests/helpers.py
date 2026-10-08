@@ -1,14 +1,38 @@
 """Shared test fixture: a fresh application and a temporary database per test."""
 
+import base64
 import os
 import re
 import tempfile
 import unittest
 
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+
 from src.app import create_app
 from src.db import get_db
 
 SCENARIO_FIELD = re.compile(r'name="scenario_id" value="([ABP][0-9]{2})"')
+ADMIN_USER = "researcher"
+ADMIN_PASSWORD = "correct-horse-battery-staple"
+BACKUP_MARKER = b"PHISHAWARE-BACKUP-1\n"
+
+
+# The backup format, written out again here so that the tests check the files
+# against the documented format and not against the code that produced them:
+# marker, 12-byte nonce, AES-256-GCM ciphertext with the marker as associated data.
+def new_backup_key():
+    return base64.urlsafe_b64encode(os.urandom(32)).decode()
+
+
+def seal_backup(key, plaintext):
+    nonce = os.urandom(12)
+    cipher = AESGCM(base64.urlsafe_b64decode(key))
+    return BACKUP_MARKER + nonce + cipher.encrypt(nonce, plaintext, BACKUP_MARKER)
+
+
+def open_backup(key, blob):
+    body = blob[len(BACKUP_MARKER):]
+    return AESGCM(base64.urlsafe_b64decode(key)).decrypt(body[:12], body[12:], BACKUP_MARKER)
 
 
 class AppTestCase(unittest.TestCase):
@@ -20,6 +44,8 @@ class AppTestCase(unittest.TestCase):
             "TESTING": True,
             "DATABASE": os.path.join(self._tmp.name, "test.db"),
             "SECRET_KEY": "test-secret-key",
+            # A cheap hash keeps the suite fast; test_admin checks the real setting.
+            "ADMIN_PASSWORD_METHOD": "scrypt:1024:8:1",
         })
         self.client = self.app.test_client()
 
@@ -31,7 +57,8 @@ class AppTestCase(unittest.TestCase):
             return get_db().execute(sql, params).fetchall()
 
     def count(self, table):
-        allowed = {"participant", "attempt", "response", "scenario", "sus_response"}
+        allowed = {"participant", "attempt", "response", "scenario", "sus_response",
+                   "lesson_view", "session_end", "admin_user", "admin_login_attempt"}
         if table not in allowed:
             raise ValueError(table)
         return self.query(f"SELECT COUNT(*) AS n FROM {table}")[0]["n"]  # nosec B608
@@ -83,7 +110,12 @@ class AppTestCase(unittest.TestCase):
     def answer_pretest(self, correct=True, client=None):
         self.answer_pattern("/assessment/pre", [correct] * 12, client)
 
+    def open_lessons(self, client=None):
+        """Open the lessons page, which unlocks the practice phase."""
+        return (client or self.client).get("/learn")
+
     def finish_practice(self, client=None):
+        self.open_lessons(client)
         self.answer_pattern("/practice", [True] * 6, client)
 
     def answer_posttest(self, correct=True, client=None):
@@ -101,3 +133,38 @@ class AppTestCase(unittest.TestCase):
         self.answer_pretest(client=client)
         self.finish_practice(client)
         return participant_id
+
+    def complete_session(self, pre_correct, post_correct, ratings=None):
+        """Run one whole participant journey in a new browser session.
+
+        pre_correct and post_correct are the numbers of correct answers out of 12.
+        Returns the participant's random ID.
+        """
+        client = self.app.test_client()
+        participant_id = self.consent(client)
+        self.answer_pattern(
+            "/assessment/pre", [True] * pre_correct + [False] * (12 - pre_correct), client)
+        self.finish_practice(client)
+        self.answer_pattern(
+            "/assessment/post", [True] * post_correct + [False] * (12 - post_correct), client)
+        if ratings is not None:
+            client.post("/survey", data=self.survey_data(ratings, client))
+        return participant_id
+
+    def copy_session(self, source=None):
+        """A second browser that holds a copy of the first one's session cookie."""
+        source = source or self.client
+        name = self.app.config["SESSION_COOKIE_NAME"]
+        thief = self.app.test_client()
+        thief.set_cookie(name, source.get_cookie(name).value)
+        return thief
+
+    def create_admin(self, username=ADMIN_USER, password=ADMIN_PASSWORD):
+        """Create (or update) an administrator through the command-line tool."""
+        return self.app.test_cli_runner().invoke(
+            args=["create-admin", "--username", username, "--password", password])
+
+    def admin_sign_in(self, username=ADMIN_USER, password=ADMIN_PASSWORD, client=None):
+        client = client or self.client
+        return client.post("/admin/login", data={
+            "username": username, "password": password, "csrf_token": self.token(client)})

@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+{% block title %}Finished{% endblock %}
+{% block content %}
+<section class="sheet sheet--narrow">
+  <h1>You are signed out of this browser</h1>
+  <p class="lead">Thank you for taking part. This browser no longer holds any link to your answers. They stay stored under a random ID and are deleted {{ retention_days }} days after you agreed to take part.</p>
+  <div class="actions"><a class="btn btn--ghost" href="{{ url_for('consent.index') }}">Return to the start</a></div>
+</section>
+{% endblock %}

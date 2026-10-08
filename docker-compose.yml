@@ -1,0 +1,67 @@
+# PhishAware pilot stack: the application behind an HTTPS reverse proxy, and a
+# second container that runs the daily data-protection jobs.
+#
+#   cp .env.example .env            then set the two secrets in .env
+#   docker compose build            build the image
+#   docker compose up -d --wait     start the services and wait until they are healthy
+#
+# docs/deployment.md has the full procedure, including backups and rollback.
+name: phishaware
+
+# Both PhishAware services run the same image with the same settings and the
+# same hardening, so the definition is written once.
+x-runtime: &runtime
+  image: phishaware:${PHISHAWARE_VERSION:-0.6.0}
+  restart: unless-stopped
+  init: true                         # forwards the stop signal, so services stop at once
+  env_file: .env
+  volumes:
+    - phishaware-data:/data          # the database and its encrypted backups
+  read_only: true                    # the code cannot be changed at run time
+  tmpfs:
+    - /tmp
+  cap_drop:
+    - ALL
+  security_opt:
+    - no-new-privileges:true
+
+services:
+  app:
+    <<: *runtime
+    build: .
+    expose:
+      - "8000"                       # reachable by the proxy only, not from the host
+
+  jobs:
+    <<: *runtime
+    command: ["flask", "run-jobs"]   # purge expired data and back up, once a day
+    depends_on:
+      app:
+        condition: service_healthy   # the web service creates the database first
+    healthcheck:                     # healthy while the last pass succeeded on time
+      test: ["CMD", "flask", "jobs-status"]
+      interval: 5m
+      timeout: 30s
+      start_period: 30s
+      retries: 1
+
+  proxy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on:
+      app:
+        condition: service_healthy   # no traffic until /healthz answers
+    ports:
+      - "${PHISHAWARE_HTTP_PORT:-80}:80"
+      - "${PHISHAWARE_HTTPS_PORT:-443}:443"
+    environment:
+      PHISHAWARE_DOMAIN: ${PHISHAWARE_DOMAIN:-localhost}
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data             # certificates
+      - caddy-config:/config
+
+volumes:
+  phishaware-data:
+  caddy-data:
+  caddy-config:
