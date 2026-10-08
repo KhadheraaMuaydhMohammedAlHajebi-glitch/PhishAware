@@ -4,6 +4,7 @@
     flask --app src.app backup-db            write an encrypted snapshot of the database
     flask --app src.app restore-db FILE      replace the database with a snapshot
     flask --app src.app run-jobs             repeat the first two, once a day by default
+    flask --app src.app jobs-status          did the last pass succeed on time? (health check)
 
 The jobs are command-line tools, so no web route exists that could be abused to
 delete or copy data. In the container deployment a second service runs
@@ -38,6 +39,8 @@ BACKUP_STAMP = "%Y%m%dT%H%M%SZ"
 # What can go wrong in a maintenance pass without being a programming error:
 # a locked or damaged database, a full or read-only disk, a missing key.
 JOB_ERRORS = (sqlite3.Error, OSError, click.ClickException)
+RETRY_SECONDS = 5 * 60    # a failed pass is tried again this soon, not a day later
+HEALTH_GRACE = 15 * 60    # how late a pass may be before the service counts as unhealthy
 SQLITE_HEADER = b"SQLite format 3\x00"   # the first 16 bytes of every SQLite database file
 REQUIRED_TABLES = {"participant", "scenario", "attempt", "response", "sus_response"}
 
@@ -221,6 +224,19 @@ def run_jobs(now=None):
     return lines
 
 
+def heartbeat_path():
+    """Where the time of the last successful pass is kept: beside the database."""
+    return Path(current_app.config["DATABASE"]).parent / "jobs.heartbeat"
+
+
+def last_pass():
+    """Time of the last successful pass, or None when none is on record."""
+    try:
+        return datetime.fromisoformat(heartbeat_path().read_text(encoding="utf-8").strip())
+    except (OSError, ValueError):
+        return None
+
+
 # Commands ------------------------------------------------------------------------
 @click.command("purge-expired")
 @click.option("--days", type=click.IntRange(min=1), default=None,
@@ -280,27 +296,52 @@ def run_jobs_command(every, once):
     """Purge expired data and write an encrypted backup, then repeat.
 
     The first pass runs at once, so restarting the service also enforces the
-    retention period. A pass that fails is reported and tried again after the
-    interval; the loop itself keeps running.
+    retention period. A pass that fails is reported and tried again after five
+    minutes; the loop itself keeps running. Each successful pass records its
+    time, which "flask jobs-status" reads.
     """
     every = every or current_app.config["JOB_INTERVAL"]
     while True:
-        click.echo(f"Maintenance pass at {utc_now().isoformat(timespec='seconds')}")
+        started = utc_now()
+        click.echo(f"Maintenance pass at {started.isoformat(timespec='seconds')}")
+        delay = every
         try:
             for line in run_jobs():
                 click.echo(line)
+            heartbeat_path().write_text(started.isoformat(timespec="seconds"), encoding="utf-8")
         except JOB_ERRORS as error:
             if once:
                 raise click.ClickException(f"The maintenance pass failed: {error}") from error
-            click.echo(f"The maintenance pass failed and will be tried again: {error}", err=True)
+            delay = min(every, RETRY_SECONDS)
+            click.echo(f"The maintenance pass failed and will be tried again in {delay} "
+                       f"seconds: {error}", err=True)
         finally:
             db.close_db()   # do not hold the database file open between passes
         if once:
             return
-        time.sleep(every)
+        time.sleep(delay)
+
+
+@click.command("jobs-status")
+@with_appcontext
+def jobs_status_command():
+    """Report whether the last maintenance pass succeeded on time.
+
+    The "jobs" container uses this as its health check, so "docker compose ps"
+    shows at a glance whether the retention job is alive.
+    """
+    last = last_pass()
+    if last is None:
+        raise click.ClickException("No maintenance pass has completed yet.")
+    limit = current_app.config["JOB_INTERVAL"] + HEALTH_GRACE
+    stamp = last.isoformat(timespec="seconds")
+    if (utc_now() - last).total_seconds() > limit:
+        raise click.ClickException(
+            f"The last maintenance pass succeeded at {stamp}, more than {limit} seconds ago.")
+    click.echo(f"Last maintenance pass: {stamp}")
 
 
 def init_app(app):
     for command in (purge_expired_command, backup_db_command, restore_db_command,
-                    run_jobs_command):
+                    run_jobs_command, jobs_status_command):
         app.cli.add_command(command)

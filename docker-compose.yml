@@ -37,8 +37,12 @@ services:
     depends_on:
       app:
         condition: service_healthy   # the web service creates the database first
-    healthcheck:
-      disable: true                  # the image's check asks a web server; this service has none
+    healthcheck:                     # healthy while the last pass succeeded on time
+      test: ["CMD", "flask", "jobs-status"]
+      interval: 5m
+      timeout: 30s
+      start_period: 30s
+      retries: 1
 
   proxy:
     image: caddy:2-alpine

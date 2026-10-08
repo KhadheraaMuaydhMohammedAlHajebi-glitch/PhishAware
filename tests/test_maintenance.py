@@ -315,6 +315,9 @@ class JobTests(BackupCase):
 
     def test_loop_waits_for_the_configured_interval_between_passes(self):
         self.app.config["JOB_INTERVAL"] = 3600
+        # The replaced timer does not wait, so both passes fall in the same second.
+        # Without a key no backup is written, and the two cannot collide.
+        self.app.config["BACKUP_KEY"] = None
         with mock.patch.object(maintenance.time, "sleep", side_effect=[None, StopLoop]) as sleep:
             result = self.run_command("run-jobs")
         self.assertIsInstance(result.exception, StopLoop)
@@ -329,9 +332,17 @@ class JobTests(BackupCase):
         self.assertIsInstance(result.exception, StopLoop)
         self.assertEqual(sleep.call_args_list, [mock.call(60), mock.call(60)])
         self.assertIn(
-            "The maintenance pass failed and will be tried again: database is locked",
-            result.output)
+            "The maintenance pass failed and will be tried again in 60 seconds: "
+            "database is locked", result.output)
         self.assertIn("Second pass succeeded.", result.output)
+
+    def test_failed_pass_is_tried_again_after_five_minutes_not_a_day(self):
+        outcomes = [OSError("disk full"), ["Second pass succeeded."]]
+        with mock.patch.object(maintenance, "run_jobs", side_effect=outcomes), \
+                mock.patch.object(maintenance.time, "sleep", side_effect=[None, StopLoop]) as sleep:
+            result = self.run_command("run-jobs", "--every", "86400")
+        self.assertEqual(sleep.call_args_list, [mock.call(300), mock.call(86400)])
+        self.assertIn("will be tried again in 300 seconds: disk full", result.output)
 
     def test_failed_single_pass_exits_with_an_error(self):
         with mock.patch.object(maintenance, "run_jobs", side_effect=OSError("disk full")):
@@ -344,3 +355,44 @@ class JobTests(BackupCase):
             result = self.run_command("run-jobs", "--every", "59")
         self.assertEqual(result.exit_code, 2)
         sleep.assert_not_called()
+
+
+class JobStatusTests(BackupCase):
+    """The health check of the jobs service (flask jobs-status)."""
+
+    def heartbeat(self):
+        return Path(self.app.config["DATABASE"]).parent / "jobs.heartbeat"
+
+    def set_last_pass(self, seconds_ago):
+        moment = datetime.now(timezone.utc) - timedelta(seconds=seconds_ago)
+        self.heartbeat().write_text(moment.isoformat(timespec="seconds"), encoding="utf-8")
+
+    def test_no_pass_on_record_is_unhealthy(self):
+        result = self.run_command("jobs-status")
+        self.assertEqual(result.exit_code, 1)
+        self.assertIn("No maintenance pass has completed yet.", result.output)
+
+    def test_successful_pass_is_recorded_and_reported(self):
+        self.assertEqual(self.run_command("run-jobs", "--once").exit_code, 0)
+        result = self.run_command("jobs-status")
+        self.assertEqual(result.exit_code, 0, result.output)
+        self.assertRegex(result.output, r"Last maintenance pass: 20\d\d-\d\d-\d\dT")
+
+    def test_failed_pass_leaves_no_record(self):
+        with mock.patch.object(maintenance, "run_jobs", side_effect=OSError("disk full")):
+            self.run_command("run-jobs", "--once")
+        self.assertFalse(self.heartbeat().exists())
+        self.assertEqual(self.run_command("jobs-status").exit_code, 1)
+
+    def test_pass_may_be_fifteen_minutes_late_and_no_later(self):
+        self.app.config["JOB_INTERVAL"] = 3600
+        self.set_last_pass(3600 + 14 * 60)
+        self.assertEqual(self.run_command("jobs-status").exit_code, 0)
+        self.set_last_pass(3600 + 16 * 60)
+        result = self.run_command("jobs-status")
+        self.assertEqual(result.exit_code, 1)
+        self.assertIn("more than 4500 seconds ago", result.output)
+
+    def test_unreadable_record_counts_as_no_pass(self):
+        self.heartbeat().write_text("not a time", encoding="utf-8")
+        self.assertEqual(self.run_command("jobs-status").exit_code, 1)
