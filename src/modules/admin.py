@@ -26,7 +26,7 @@ from flask.cli import with_appcontext
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from src import repository
-from src.modules.results import BAR_FULL_WIDTH, chart_rows
+from src.modules.results import BAR_FULL_WIDTH, CHART_LABEL_SPACE, chart_rows
 from src.modules.scoring import (
     CUE_CATEGORIES, cohort_summary, cue_comparison, describe, score_attempt,
 )
@@ -105,7 +105,7 @@ def build_dashboard():
             rows=chart_rows(cue_comparison(
                 repository.cohort_responses("pre"), repository.cohort_responses("post")
             )),
-            chart_width=BAR_FULL_WIDTH + 60,
+            chart_width=BAR_FULL_WIDTH + CHART_LABEL_SPACE,
         )
     return data
 

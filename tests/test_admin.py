@@ -45,7 +45,10 @@ class AdminAccessTests(AppTestCase):
         page = self.client.get("/admin")
         self.assertEqual(page.status_code, 200)
         self.assertIn(b"Pilot results", page.data)
-        self.assertIn(f"Administrator {ADMIN_USER}".encode(), page.data)
+        # The top bar names the account; narrow screens show the short form.
+        self.assertIn(
+            f'<span class="only-wide">Administrator</span>'
+            f'<span class="only-narrow">Admin</span> {ADMIN_USER}'.encode(), page.data)
         self.assertEqual(page.headers["Cache-Control"], "no-store")
 
     def test_username_is_trimmed_and_case_insensitive(self):

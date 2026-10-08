@@ -17,6 +17,7 @@ bp = Blueprint("results", __name__)
 
 BAR_FULL_WIDTH = 400   # SVG user units for a bar that represents 100%
 BAR_MIN_WIDTH = 3      # keeps a 0% bar visible as a thin marker
+CHART_LABEL_SPACE = 72  # room to the right of a full bar for its "100%" label
 
 
 def percent_correct(error_rate):
@@ -69,6 +70,6 @@ def results():
         gain=learning_gain(pre["score"], post["score"]),
         rows=chart_rows(cue_comparison(pre_responses, post_responses)),
         focus=[CUE_LABELS[cue] for cue in focus_areas(post_responses)],
-        chart_width=BAR_FULL_WIDTH + 60,
+        chart_width=BAR_FULL_WIDTH + CHART_LABEL_SPACE,
         survey_done=repository.get_sus(participant["id"]) is not None,
     )

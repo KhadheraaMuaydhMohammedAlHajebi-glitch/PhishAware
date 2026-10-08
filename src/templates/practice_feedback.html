@@ -12,7 +12,7 @@
   <div>
     <p class="result__title">{{ 'Correct. Well spotted.' if correct else 'Not quite. Here is what to look for.' }}</p>
     <p>You answered <strong>{{ answer|capitalize }}</strong>. This {{ 'email' if scenario.channel == 'email' else 'web page' }} is
-      <span class="verdict verdict--{{ scenario.label }}">{{ scenario.label|capitalize }}</span>, and the cue it tests is {{ cue_label|lower }}.</p>
+      <span class="nowrap"><span class="verdict verdict--{{ scenario.label }}">{{ scenario.label|capitalize }}</span>,</span> and the cue it tests is {{ cue_label|lower }}.</p>
   </div>
 </div>
 <div class="workspace">

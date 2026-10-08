@@ -24,7 +24,8 @@ class NavigationTests(AppTestCase):
     def test_dashboard_tracks_every_step(self):
         participant_id = self.consent()
         page = self.dashboard()
-        self.assertIn(f"Anonymous session {participant_id[-6:]}", page)
+        self.assertIn(f'Anonymous session</span><span class="only-narrow">Session</span> '
+                      f"{participant_id[-6:]}", page)
         self.assertIn("You take Form A first and Form B at the end", page)
         self.assertIn("After the pre-assessment", page)   # the lessons are locked
         self.assertIn("After the lessons", page)          # and so is the practice

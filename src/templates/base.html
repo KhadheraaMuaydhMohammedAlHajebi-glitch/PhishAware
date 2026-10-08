@@ -22,7 +22,7 @@
       </a>
       {% if session_admin %}
       <nav class="topbar__nav" aria-label="Administrator session">
-        <span class="session-tag">Administrator {{ session_admin['username'] }}</span>
+        <span class="session-tag"><span class="only-wide">Administrator</span><span class="only-narrow">Admin</span> {{ session_admin['username'] }}</span>
         <a class="topbar__link" href="{{ url_for('admin.dashboard') }}">Pilot results</a>
         <form method="post" action="{{ url_for('admin.logout') }}" class="topbar__form">
           <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
@@ -31,7 +31,7 @@
       </nav>
       {% elif session_participant %}
       <nav class="topbar__nav" aria-label="Session">
-        <span class="session-tag" title="Your anonymous session identifier">Anonymous session {{ session_participant['id'][-6:] }}</span>
+        <span class="session-tag" title="Your anonymous session identifier"><span class="only-wide">Anonymous session</span><span class="only-narrow">Session</span> {{ session_participant['id'][-6:] }}</span>
         <a class="topbar__link" href="{{ url_for('consent.dashboard') }}">Dashboard</a>
         <a class="topbar__link topbar__link--quiet" href="{{ url_for('consent.withdraw_confirm') }}">Withdraw</a>
       </nav>
