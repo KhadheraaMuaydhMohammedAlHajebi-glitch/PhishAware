@@ -13,7 +13,7 @@ from pathlib import Path
 # Project root: the folder that contains src/, data/, and tests/.
 BASE_DIR = Path(__file__).resolve().parent.parent
 ENVIRONMENTS = ("development", "production")
-JOURNAL_MODES = ("WAL", "DELETE")
+JOURNAL_MODES = ("AUTO", "WAL", "DELETE")
 
 
 def env_flag(name, default):
@@ -36,10 +36,12 @@ class Config:
     DATABASE = os.environ.get(
         "PHISHAWARE_DB", str(BASE_DIR / "instance" / "phishaware.db")
     )
-    # Write-ahead logging lets readers and one writer work at the same time, which
-    # the worker processes need. Use DELETE on a network file system, where
-    # SQLite's write-ahead log is not supported.
-    SQLITE_JOURNAL_MODE = os.environ.get("PHISHAWARE_SQLITE_JOURNAL", "WAL").upper()
+    # Journal mode. Write-ahead logging (WAL) lets readers and the single writer
+    # work at the same time; the rollback journal (DELETE) makes them take turns.
+    # AUTO chooses WAL only when the SQLite library contains the fix for the
+    # "WAL-reset bug" (see db.wal_is_safe) and the rollback journal otherwise.
+    # Choose DELETE on a network file system, where WAL is not supported.
+    SQLITE_JOURNAL_MODE = os.environ.get("PHISHAWARE_SQLITE_JOURNAL", "AUTO").upper()
 
     # Content is stored as data, not code, so reviewers can edit scenarios
     # and lessons without touching application logic (NFR-07).
