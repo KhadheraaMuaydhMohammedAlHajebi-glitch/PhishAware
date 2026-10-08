@@ -13,7 +13,7 @@ All notable changes to PhishAware are recorded here (Keep a Changelog format).
 - M3 and M4: opening the lessons is recorded as a step and unlocks the practice scenarios; an answer is chosen first and then submitted with a separate button (FR-04, FR-05).
 - Deployment: a production image (`Dockerfile`), a three-service stack with an HTTPS reverse proxy (`docker-compose.yml`, `deploy/Caddyfile`), server settings (`gunicorn.conf.py`), a settings template (`.env.example`), exact versions of all eleven packages (`constraints.txt`), start-up checks that refuse an unsafe configuration, and a health endpoint (`/healthz`) (NFR-08, NFR-12).
 - Evaluation tools: `evaluation/loadtest.py` (latency, throughput, and the accuracy of every reported score against an independent oracle) and `evaluation/browser_audit.py` (accessibility, layout from 320 to 1920 px, keyboard-only use, page-load time, and the complete journey repeated in Firefox and WebKit) (NFR-01, NFR-03, NFR-04).
-- CI: a quality gate on Python 3.11 and 3.13, a container job that builds the image, smoke-tests the stack over HTTPS, and rehearses the restore procedure, and an evaluation job that measures the running stack on every push.
+- CI: a quality gate on Python 3.11 and 3.13, a container job that builds the image, smoke-tests the stack over HTTPS, and rehearses the restore procedure, and an evaluation job that measures the running stack on every push. Every job has a time limit.
 - Documents: `docs/deployment.md`, `docs/evaluation.md`, and `docs/security-checklist.md` (a review against OWASP ASVS 5.0).
 - 155 new tests (233 in total); statement coverage of `src/` remains 100% (1,280 statements).
 
