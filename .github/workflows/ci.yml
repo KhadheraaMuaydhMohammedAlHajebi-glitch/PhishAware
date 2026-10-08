@@ -202,12 +202,14 @@ jobs:
             # A change made after that backup, which the restore must undo.
             docker compose exec -T app flask create-admin --username after-backup \
               --password "$(python3 -c 'import secrets; print(secrets.token_urlsafe(18))')"
-            # Ask the site for its health five times a second, to see for how long
-            # a participant would get no answer during the procedure.
+            # Ask the site for its health about five times a second, to see for how
+            # long a participant would get no answer during the procedure. Each line
+            # records when a request began, when it ended, and whether it was answered.
             ( while true; do
+                began="$(date +%s.%N)"
                 if curl --fail --silent --output /dev/null --max-time 1 \
                     --cacert caddy-root.crt https://localhost/healthz; then state=up; else state=down; fi
-                echo "$(date +%s.%N) $state"
+                echo "$began $(date +%s.%N) $state"
                 sleep 0.2
               done ) > probe.log 2> /dev/null &
             probe=$!
@@ -221,9 +223,15 @@ jobs:
             echo "All services healthy again after $((SECONDS - started)) s."
             sleep 1
             kill "$probe"
-            awk '$2 == "down" { if (!first) first = $1; last = $1 }
-                 END { if (first) printf "The site did not answer for %.1f seconds.\n", last - first + 0.2;
-                       else print "The site answered throughout." }' probe.log
+            # A failed request can itself take up to a second, so counting failures
+            # would understate the gap. The site was certainly up when the last answered
+            # request before the gap began, and when the first answered request after it
+            # ended; the time between those two moments is the longest the gap can be.
+            awk '$3 == "down" { failed += 1; gap = 1 }
+                 $3 == "up" { if (!failed) before = $1; else if (gap) { after = $2; gap = 0 } }
+                 END { if (!failed) print "The site answered every health request.";
+                       else if (gap) print "The site failed " failed " health request(s) and had not recovered when the probe stopped.";
+                       else printf "The site failed %d health request(s); it was unavailable for at most %.1f seconds.\n", failed, after - before }' probe.log
             docker compose exec -T app python -c "import sqlite3; print('Administrator accounts after the restore:', sqlite3.connect('/data/phishaware.db').execute('SELECT COUNT(*) FROM admin_user').fetchone()[0])"
           } 2>&1 | tee restore.log
           grep -q "Database restored from /data/backups/phishaware-" restore.log
