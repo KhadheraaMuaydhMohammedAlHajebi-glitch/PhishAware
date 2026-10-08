@@ -2,8 +2,11 @@
 
 import html
 import json
+import re
 
 from tests.helpers import AppTestCase
+
+TAGS = re.compile(r"<[^>]+>")
 
 
 class PracticeTests(AppTestCase):
@@ -36,7 +39,9 @@ class PracticeTests(AppTestCase):
         response = self.answer_current("/practice", correct=False)
         self.assertEqual(response.status_code, 302)
         location = response.headers["Location"]
-        feedback = html.unescape(self.client.get(location).get_data(as_text=True))
+        # Compare what the participant reads: domains in the text carry markup
+        # that keeps them from breaking across lines, so the tags are removed.
+        feedback = html.unescape(TAGS.sub("", self.client.get(location).get_data(as_text=True)))
         content = json.loads(self.query(
             "SELECT content_json FROM scenario WHERE id = ?", (scenario_id,))[0]["content_json"])
         self.assertIn("Not quite", feedback)

@@ -60,6 +60,54 @@ class AddressPartsTests(unittest.TestCase):
             self.assertIsNone(display.address_parts(value), value)
 
 
+class AddressesInTextTests(unittest.TestCase):
+    """The "addresses" filter, used wherever a sentence mentions a domain."""
+
+    def text_of(self, markup):
+        return html.unescape(TAGS.sub("", str(markup)))
+
+    def test_lookalike_domain_in_a_sentence_becomes_one_unit(self):
+        sentence = "northbridge.example.grade-portal.test belongs to grade-portal.test"
+        markup = display.protect_addresses(sentence)
+        self.assertEqual(
+            LABEL.findall(str(markup)),
+            ["northbridge", ".example", ".grade-portal", ".test", "grade-portal", ".test"])
+        self.assertEqual(self.text_of(markup), sentence)       # nothing added or lost
+
+    def test_email_address_keeps_its_local_part_and_its_host_whole(self):
+        markup = str(display.protect_addresses("it-services@northbrldge.example is not genuine"))
+        self.assertTrue(markup.startswith(
+            '<span class="host__label">it-services@</span><wbr><span class="host">'
+            '<span class="host__label">northbrldge</span><wbr>'
+            '<span class="host__label">.example</span></span> is not genuine'), markup)
+
+    def test_punctuation_around_a_host_stays_outside_it(self):
+        markup = str(display.protect_addresses("(northbridge-admin.example), then learn.x.test."))
+        self.assertIn('(<span class="host"><span class="host__label">northbridge-admin</span>',
+                      markup)
+        self.assertIn('<span class="host__label">.example</span></span>),', markup)
+        self.assertTrue(markup.endswith('<span class="host__label">.test</span></span>.'))
+
+    def test_host_inside_a_url_is_protected_and_the_rest_is_left(self):
+        markup = str(display.protect_addresses("Open https://learn-northbridge.example/login now"))
+        self.assertIn('https://<span class="host"><span class="host__label">learn-northbridge'
+                      '</span>', markup)
+        self.assertIn("</span></span>/login now", markup)
+
+    def test_file_names_numbers_and_abbreviations_are_left_alone(self):
+        for sentence in ("Invoice_88213.zip from a bank you have never used",
+                         "Scores rose by 3.5 points, e.g. after practice",
+                         "Your enrollment will be cancelled at 5:00 PM today",
+                         "Reply with the 6-digit code we sent to your phone"):
+            self.assertEqual(str(display.protect_addresses(sentence)), sentence)
+
+    def test_markup_in_the_sentence_is_escaped(self):
+        markup = str(display.protect_addresses('<script>x</script> at evil.example & "more"'))
+        self.assertNotIn("<script>", markup)
+        self.assertIn("&lt;script&gt;x&lt;/script&gt; at ", markup)
+        self.assertIn("&amp;", markup)
+
+
 class ScenarioMarkupTests(AppTestCase):
     def item_page(self, scenario_id):
         """Render one scenario exactly as the assessment page does."""
@@ -84,8 +132,18 @@ class ScenarioMarkupTests(AppTestCase):
 
     def test_sender_address_keeps_the_closing_bracket_with_the_domain(self):
         page = self.item_page("A01")
-        self.assertIn('&lt;grades@<wbr><span class="host">', page)
+        self.assertIn('<span class="host__label">&lt;grades@</span><wbr><span class="host">', page)
         self.assertIn('<span class="host__label">.example&gt;</span>', page)
+
+    def test_hyphenated_local_part_is_unbreakable_too(self):
+        page = self.item_page("A02")   # From: it-services@northbridge.example
+        self.assertIn('<span class="host__label">&lt;it-services@</span><wbr>', page)
+
+    def test_address_in_a_message_body_is_protected(self):
+        page = self.item_page("A11")   # the body names dana.lee@student.northbridge.example
+        self.assertIn(
+            '<span class="host__label">dana.lee@</span><wbr><span class="host">'
+            '<span class="host__label">student</span>', page)
 
     def test_no_scenario_shows_an_address_that_could_break_inside_a_label(self):
         addresses = re.compile(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+|[a-z]+://[\w-]+(?:\.[\w-]+)+")
@@ -103,6 +161,49 @@ class ScenarioMarkupTests(AppTestCase):
         for words in ("Address bar: ", "Text field: ", "Button: "):
             self.assertIn(f'<span class="visually-hidden">{words}</span>', web)
         self.assertIn('<span class="visually-hidden">Link: </span>', self.item_page("A01"))
+
+
+class SentencesWithAddressesTests(AppTestCase):
+    """Lessons and feedback mention domains in running text; none may be left bare."""
+
+    BARE = display.IN_TEXT
+    MARKED = re.compile(r'(?:<span class="host__label">[^<]*@</span><wbr>)?'
+                        r'<span class="host">.*?</span></span>', re.S)
+
+    def bare_addresses(self, page):
+        main = page.split("<main", 1)[1].split("</main>", 1)[0]
+        return self.BARE.findall(html.unescape(TAGS.sub(" ", self.MARKED.sub(" ", main))))
+
+    def test_lessons_show_no_address_that_could_break_inside_a_label(self):
+        self.consent()
+        self.answer_pretest()
+        page = self.client.get("/learn").get_data(as_text=True)
+        self.assertIn('<span class="host__label">.grade-portal</span>', page)
+        self.assertIn('<span class="host__label">it-services@</span>', page)
+        self.assertEqual(self.bare_addresses(page), [])
+
+    def test_feedback_shows_no_address_that_could_break_inside_a_label(self):
+        self.consent()
+        self.answer_pretest()
+        self.open_lessons()
+        marked = 0
+        for _ in range(6):
+            response = self.answer_current("/practice")       # redirects to the feedback
+            page = self.client.get(response.headers["Location"]).get_data(as_text=True)
+            self.assertIn("Safe action", page)
+            self.assertEqual(self.bare_addresses(page), [])
+            marked += page.count('<span class="host">')
+        self.assertGreater(marked, 6)   # the six practice items do mention domains
+
+    def test_feedback_text_of_every_scenario_renders_without_a_bare_address(self):
+        with self.app.test_request_context():
+            for row in self.query("SELECT id, pool FROM scenario ORDER BY id"):
+                scenario = repository.scenario_content(
+                    repository.get_scenario(row["id"], row["pool"]))
+                page = render_template(
+                    "practice_feedback.html", scenario=scenario, correct=True,
+                    answer=scenario["label"], cue_label="cue", answered=1, total=6)
+                self.assertEqual(self.bare_addresses(page), [], row["id"])
 
 
 class DecisionFormTests(AppTestCase):

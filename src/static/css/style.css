@@ -269,6 +269,8 @@ progress::-moz-progress-bar { background: var(--teal); }
   .attachments { padding: 12px 16px 0; }
   .email__meta div { grid-template-columns: 1fr; gap: 0; margin-bottom: 4px; }
   .addr, .browser__url, .link-preview code { font-size: 0.75rem; }
+  .lesson { padding: 18px 16px; }
+  .lesson__example { padding: 8px 6px; font-size: 0.75rem !important; }
   .browser__bar { padding: 8px 10px; }
   .browser__dots { display: none; }
   .browser__address { align-items: flex-start; padding: 7px 10px; border-radius: 12px; }

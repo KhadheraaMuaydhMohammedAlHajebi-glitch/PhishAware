@@ -10,15 +10,15 @@
 {%- endmacro -%}
 {%- macro address(value, prefix='', suffix='') -%}
 {%- set parts = value|address_parts -%}
-{%- if parts -%}{{ prefix }}{{ parts.local }}<wbr>{{ host(parts.labels, suffix) }}{%- else -%}{{ prefix }}{{ value }}{{ suffix }}{%- endif -%}
+{%- if parts -%}<span class="host__label">{{ prefix }}{{ parts.local }}</span><wbr>{{ host(parts.labels, suffix) }}{%- else -%}{{ prefix }}{{ value|addresses }}{{ suffix }}{%- endif -%}
 {%- endmacro -%}
 {%- macro url(value) -%}
 {%- set parts = value|url_parts -%}
-{%- if parts -%}{{ parts.scheme }}<wbr>{{ host(parts.labels) }}<wbr>{{ parts.rest }}{%- else -%}{{ value }}{%- endif -%}
+{%- if parts -%}{{ parts.scheme }}<wbr>{{ host(parts.labels) }}<wbr>{{ parts.rest }}{%- else -%}{{ value|addresses }}{%- endif -%}
 {%- endmacro -%}
 <article class="scenario" aria-label="{{ 'Email message' if scenario.channel == 'email' else 'Web page' }}">
   {% if scenario.context %}
-  <p class="scenario__context">{{ scenario.context }}</p>
+  <p class="scenario__context">{{ scenario.context|addresses }}</p>
   {% endif %}
   {% if scenario.channel == 'email' %}
   {% set e = scenario.email %}
@@ -43,7 +43,7 @@
     </ul>
     {% endif %}
     <div class="email__body">
-      {% for paragraph in e.body %}<p>{{ paragraph }}</p>{% endfor %}
+      {% for paragraph in e.body %}<p>{{ paragraph|addresses }}</p>{% endfor %}
       {% if e.link %}
       <p><span class="fake-link"><span class="visually-hidden">Link: </span>{{ url(e.link.text) }}</span></p>
       <details class="link-preview"{% if reveal %} open{% endif %}>
@@ -71,7 +71,7 @@
     <div class="browser__page">
       <div class="site-brand"><span class="site-brand__crest" aria-hidden="true">{{ w.org[0] }}</span>{{ w.org }}</div>
       <h2 class="site-title">{{ w.heading }}</h2>
-      {% for paragraph in w.body %}<p>{{ paragraph }}</p>{% endfor %}
+      {% for paragraph in w.body %}<p>{{ paragraph|addresses }}</p>{% endfor %}
       {% for field in w.fields %}
       <div class="fake-field"><span class="fake-field__label"><span class="visually-hidden">Text field: </span>{{ field }}</span><span class="fake-field__box" aria-hidden="true"></span></div>
       {% endfor %}

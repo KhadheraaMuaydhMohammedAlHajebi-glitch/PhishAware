@@ -10,10 +10,10 @@
   <li class="lesson">
     <span class="lesson__num" aria-hidden="true">{{ loop.index }}</span>
     <h2>{{ lesson.title }}</h2>
-    <p>{{ lesson.summary }}</p>
-    <ul>{% for item in lesson.look_for %}<li>{{ item }}</li>{% endfor %}</ul>
-    <p class="lesson__example">{{ lesson.example }}</p>
-    <p class="lesson__safe">{{ lesson.safe_action }}</p>
+    <p>{{ lesson.summary|addresses }}</p>
+    <ul>{% for item in lesson.look_for %}<li>{{ item|addresses }}</li>{% endfor %}</ul>
+    <p class="lesson__example">{{ lesson.example|addresses }}</p>
+    <p class="lesson__safe">{{ lesson.safe_action|addresses }}</p>
   </li>
   {% endfor %}
 </ol>
