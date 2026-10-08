@@ -17,6 +17,11 @@ participant journey and the administrator area four times:
 4. Page load on an emulated slow mobile connection, with the network and
    processor limits that Lighthouse uses for its "slow 4G" profile.
 
+With --also firefox,webkit the same journey is then repeated in those browser
+engines, with the reflow check at the narrowest and the widest supported window
+(NFR-04). The detailed inspection stays in Chromium, because the timing and
+throttling steps use its debugging protocol.
+
 Each journey first consents and withdraws, then consents again, completes every
 step, and finishes. A finished session can no longer be withdrawn, so every
 journey leaves one scripted record: run the audit against a test instance and
@@ -41,6 +46,9 @@ PAGE_CHECKS = (HERE / "page_checks.js").read_text(encoding="utf-8")
 WIDTHS = (320, 360, 768, 1280, 1920)    # 320 px is the WCAG reflow width; NFR-04 covers 360-1920
 DESKTOP = {"width": 1280, "height": 800}
 TARGET_WIDTH = 360                      # touch-target sizes are checked at phone width
+SUPPORTED_RANGE = (360, 1920)           # NFR-04: the narrowest and the widest supported window
+ENGINE_NAMES = {"chromium": "Chromium", "firefox": "Firefox",
+                "webkit": "WebKit (the engine of Safari)"}
 MAX_TABS = 120
 AXE_TAGS = ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "best-practice"]
 # Lighthouse's "slow 4G" throttling as applied through the debugging protocol:
@@ -294,6 +302,43 @@ class Inspector:
         page.evaluate("document.activeElement && document.activeElement.blur()")
 
 
+class LayoutProbe:
+    """Other browser engines: every screen must load and fit both ends of the range."""
+
+    def __init__(self, page):
+        self.page = page
+        self.screens = []
+        self.failures = []
+
+    def __call__(self, name, first, after):
+        if not first:
+            return
+        self.screens.append(name)
+        for width in SUPPORTED_RANGE:
+            self.page.set_viewport_size({"width": width, "height": DESKTOP["height"]})
+            result = self.page.evaluate(PAGE_CHECKS, {"reflow": True})
+            self.failures += [dict(entry, screen=f"{name} at {width} px")
+                              for entry in result["failures"] if entry["check"] == "reflow"]
+        self.page.set_viewport_size(DESKTOP)
+
+
+def other_engine(playwright, engine, args, bank, admin, options):
+    """Run the whole journey in another browser engine; returns its summary."""
+    browser = getattr(playwright, engine).launch()
+    entry = {"engine": engine, "version": browser.version, "completed": False}
+    context = browser.new_context(viewport=DESKTOP, **options)
+    probe = LayoutProbe(context.new_page())
+    try:
+        Journey(probe.page, args.base_url, bank, probe, admin).run()
+        entry["completed"] = True
+    except (RuntimeError, PlaywrightError) as error:
+        entry["error"] = str(error).splitlines()[0]
+    entry.update(screens=len(probe.screens), failures=probe.failures)
+    context.close()
+    browser.close()
+    return entry
+
+
 class Stopwatch:
     """Journeys 3 and 4: the browser's own timing record for every screen."""
 
@@ -458,6 +503,9 @@ def audit(args):
             "emulated slow 4G": timed_journey(browser, args, bank, options, throttle=True),
         }
         browser.close()
+        report["other_engines"] = [
+            other_engine(playwright, engine, args, bank, admin, options)
+            for engine in (args.also.split(",") if args.also else [])]
     report["budget_ms"] = args.budget_load_ms
     return report
 
@@ -478,6 +526,13 @@ def problems(report):
             if summary[key]["p95"] > report["budget_ms"]:
                 found.append(f"page load, {condition}, {label}: 95th percentile "
                              f"{summary[key]['p95']} ms exceeds {report['budget_ms']:g} ms")
+    for entry in report["other_engines"]:
+        name = ENGINE_NAMES[entry["engine"]]
+        if not entry["completed"]:
+            found.append(f"{name}: the journey stopped after {entry['screens']} screens: "
+                         + entry.get("error", "unknown error"))
+        found += [f"{name}: reflow (1.4.10) on {f['screen']}: {f['element']}: {f['detail']}"
+                  for f in entry["failures"]]
     return found
 
 
@@ -521,6 +576,14 @@ def format_report(report):
         lines.append(f"  first visit, {condition}: {first['load']} ms, {first['requests']} "
                      f"requests, {first['kilobytes']} kB; later screens average "
                      f"{summary['requests_per_later_screen']} requests")
+    if report["other_engines"]:
+        lines += ["", "The same journey in other browser engines, with the reflow check at "
+                  f"{SUPPORTED_RANGE[0]} and {SUPPORTED_RANGE[1]} px (NFR-04)"]
+        for entry in report["other_engines"]:
+            outcome = "journey completed" if entry["completed"] else "journey NOT completed"
+            lines.append(f"  {ENGINE_NAMES[entry['engine']]} {entry['version']}: "
+                         f"{entry['screens']} screens, {outcome}, "
+                         f"{len(entry['failures'])} layout failure(s)")
     found = problems(report)
     lines += ["", f"Result: {'PASS' if not found else f'{len(found)} problem(s)'}"]
     lines += [f"  ! {line}" for line in found[:25]]
@@ -557,6 +620,8 @@ def parse_arguments(argv=None):
     parser.add_argument("--axe", help="path to axe.min.js; without it the axe-core scan is skipped")
     parser.add_argument("--admin-user")
     parser.add_argument("--admin-password")
+    parser.add_argument("--also", metavar="ENGINES",
+                        help="repeat the journey in these engines, for example firefox,webkit")
     parser.add_argument("--ignore-https-errors", action="store_true",
                         help="accept a certificate from a local authority (local HTTPS only)")
     parser.add_argument("--budget-load-ms", type=float, default=2000.0,

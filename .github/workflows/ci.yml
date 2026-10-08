@@ -329,16 +329,16 @@ jobs:
         with:
           python-version: "3.13"
 
-      - name: Install the browser and axe-core
+      - name: Install the browsers and axe-core
         run: |
           pip install -r evaluation/requirements.txt
-          python -m playwright install --with-deps chromium
+          python -m playwright install --with-deps chromium firefox webkit
           npm install --no-save --prefix "$RUNNER_TEMP/axe" axe-core@4.10.2
 
       - name: Browser audit - accessibility, layout, and page load
         run: |
           python evaluation/browser_audit.py --base-url https://localhost --ignore-https-errors \
-            --axe "$RUNNER_TEMP/axe/node_modules/axe-core/axe.min.js" \
+            --axe "$RUNNER_TEMP/axe/node_modules/axe-core/axe.min.js" --also firefox,webkit \
             --admin-user evaluator --admin-password "$EVALUATOR_PASSWORD" \
             --markdown "$GITHUB_STEP_SUMMARY" | tee audit.log
 
