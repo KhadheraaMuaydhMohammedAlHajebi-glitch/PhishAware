@@ -46,7 +46,7 @@ Both PhishAware containers run as an unprivileged user (uid 10001) with a read-o
 |---|---|
 | Operating system | 64-bit Linux. Tested on Ubuntu 24.04 LTS. |
 | Container runtime | Docker Engine with the Compose plugin. Tested with Docker Engine 28.0 and Compose 2.38. Docker Engine 25 or newer is recommended: older engines run the first health check later, so start-up takes longer. |
-| Hardware | 2 CPU cores and 1 GB of memory. The three containers peaked at about 230 MiB under load (`docs/evaluation.md`). The load test ran on four cores shared with the load generator; a host with fewer cores has not been measured. |
+| Hardware | 2 CPU cores and 1 GB of memory. The three containers peaked at about 230 MiB under load (`docs/evaluation.md`). The load test ran on four cores shared with the load generator; a host with fewer cores has not been measured. Response times differed more than tenfold between runners of the same type, so run the load test on the pilot host before the pilot (`docs/evaluation.md`, sections 2.7 and 6). |
 | Storage | 1 GB free. **Turn on disk encryption for the volume that holds Docker's data** (for example LUKS, or the provider's encrypted disks). The application encrypts its backups itself; the live database file relies on this disk encryption. |
 | Network | Inbound TCP 80 and 443. A DNS name that points to the host, so that the proxy can obtain a public certificate. |
 | Clock | Synchronised (NTP). Retention and session limits are computed from the host clock. |
