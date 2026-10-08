@@ -199,11 +199,28 @@ jobs:
             # A change made after that backup, which the restore must undo.
             docker compose exec -T app flask create-admin --username after-backup \
               --password "$(python3 -c 'import secrets; print(secrets.token_urlsafe(18))')"
-            stopped=$SECONDS
+            # Ask the site for its health five times a second, to see for how long
+            # a participant would get no answer during the procedure.
+            ( while true; do
+                if curl --fail --silent --output /dev/null --max-time 1 \
+                    --cacert caddy-root.crt https://localhost/healthz; then state=up; else state=down; fi
+                echo "$(date +%s.%N) $state"
+                sleep 0.2
+              done ) > probe.log 2> /dev/null &
+            probe=$!
+            sleep 1
+            started=$SECONDS
             docker compose stop app jobs
+            echo "Services stopped after $((SECONDS - started)) s."
             docker compose run --rm --no-deps -T app flask restore-db "$backup" --yes
+            echo "Backup restored after $((SECONDS - started)) s."
             docker compose up --detach --wait --wait-timeout 120
-            echo "The services were down for $((SECONDS - stopped)) seconds."
+            echo "All services healthy again after $((SECONDS - started)) s."
+            sleep 1
+            kill "$probe"
+            awk '$2 == "down" { if (!first) first = $1; last = $1 }
+                 END { if (first) printf "The site did not answer for %.1f seconds.\n", last - first + 0.2;
+                       else print "The site answered throughout." }' probe.log
             docker compose exec -T app python -c "import sqlite3; print('Administrator accounts after the restore:', sqlite3.connect('/data/phishaware.db').execute('SELECT COUNT(*) FROM admin_user').fetchone()[0])"
           } 2>&1 | tee restore.log
           grep -q "Database restored from /data/backups/phishaware-" restore.log
