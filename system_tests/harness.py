@@ -703,7 +703,11 @@ class SystemCase(unittest.TestCase):
         folder.mkdir(parents=True, exist_ok=True)
         path = folder / f"{self.case_id}-{settings().engine}-{name}.png"
         try:
-            user.page.screenshot(path=str(path), full_page=full_page)
+            # caret="initial": by default Playwright hides the text cursor by adding a
+            # style element to the page. The application's content security policy
+            # refuses that element, as it should, and WebKit reports the refusal in
+            # the console, where it would count as a problem of the page.
+            user.page.screenshot(path=str(path), full_page=full_page, caret="initial")
         except Exception:   # nosec B110 - evidence is best effort and must not hide the verdict
             return None
         return path
