@@ -67,6 +67,19 @@ def utc_now():
     return datetime.now(timezone.utc)
 
 
+def forget_old_sign_in_attempts(now=None):
+    """Delete failed sign-in records that are older than the rate-limit window.
+
+    The sign-in form deletes them as well, but only when somebody uses it. A
+    study can run for weeks without an administrator signing in, and the records
+    of a burst of guesses would stay in the database, and in its backups, for
+    as long. Returns the number of records deleted.
+    """
+    seconds = current_app.config["ADMIN_LOCKOUT_SECONDS"]
+    cutoff = (now or utc_now()) - timedelta(seconds=seconds)
+    return repository.clear_failed_logins(before=cutoff.isoformat(timespec="seconds"))
+
+
 def retention_cutoff(days, now=None):
     """ISO-8601 time before which a consent record has outlived the retention period."""
     return ((now or utc_now()) - timedelta(days=days)).isoformat(timespec="seconds")
@@ -228,6 +241,10 @@ def describe_expiry(count, days, dry_run=False):
     return f"{verb} {count} backup(s) older than {days} days."
 
 
+def describe_attempts(count, seconds):
+    return f"Deleted {count} failed sign-in record(s) older than {seconds // 60} minutes."
+
+
 def describe_backup(path):
     return f"Encrypted backup written: {path} ({path.stat().st_size} bytes)"
 
@@ -242,6 +259,8 @@ def run_jobs(now=None):
     config = current_app.config
     lines = [describe_purge(
         purge_expired(config["RETENTION_DAYS"], now), config["RETENTION_DAYS"])]
+    lines.append(describe_attempts(
+        forget_old_sign_in_attempts(now), config["ADMIN_LOCKOUT_SECONDS"]))
     if config.get("BACKUP_KEY"):
         lines.append(describe_backup(create_backup(backup_directory(), now)))
     else:

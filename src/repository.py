@@ -357,18 +357,21 @@ def _new_stamp():
     return datetime.now(timezone.utc).isoformat(timespec="microseconds")
 
 
-def record_failed_login(username):
+# A failed sign-in is stored under a keyed digest of the attempted username
+# (admin.attempt_key), in the column that is still called "username": the text
+# that was typed is never stored, because it may be a password (NFR-11).
+def record_failed_login(key):
     db = get_db()
     db.execute(
         "INSERT INTO admin_login_attempt (username, attempted_at) VALUES (?, ?)",
-        (username, utc_now()),
+        (key, utc_now()),
     )
     db.commit()
 
 
-def failed_login_count(since, username=None):
-    """Failed sign-in attempts since a time: for one username, or for all of them."""
-    if username is None:
+def failed_login_count(since, key=None):
+    """Failed sign-in attempts since a time: for one username's key, or for all."""
+    if key is None:
         row = get_db().execute(
             "SELECT COUNT(*) AS n FROM admin_login_attempt WHERE attempted_at >= ?", (since,)
         ).fetchone()
@@ -376,16 +379,23 @@ def failed_login_count(since, username=None):
         row = get_db().execute(
             "SELECT COUNT(*) AS n FROM admin_login_attempt "
             "WHERE username = ? AND attempted_at >= ?",
-            (username, since),
+            (key, since),
         ).fetchone()
     return row["n"]
 
 
-def clear_failed_logins(username=None, before=None):
-    """Forget failed attempts: all of one username's, or everything older than a time."""
+def clear_failed_logins(key=None, before=None):
+    """Forget failed attempts: all under one key, or everything older than a time.
+
+    Returns the number of attempts that were deleted.
+    """
     db = get_db()
-    if username is not None:
-        db.execute("DELETE FROM admin_login_attempt WHERE username = ?", (username,))
+    deleted = 0
+    if key is not None:
+        deleted += db.execute(
+            "DELETE FROM admin_login_attempt WHERE username = ?", (key,)).rowcount
     if before is not None:
-        db.execute("DELETE FROM admin_login_attempt WHERE attempted_at < ?", (before,))
+        deleted += db.execute(
+            "DELETE FROM admin_login_attempt WHERE attempted_at < ?", (before,)).rowcount
     db.commit()
+    return deleted

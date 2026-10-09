@@ -95,7 +95,9 @@ CREATE TABLE IF NOT EXISTS admin_user (
 );
 
 -- M7: failed sign-in attempts, kept only long enough to rate-limit guessing
--- (NFR-10). The key is the attempted username, never an IP address (NFR-11).
+-- (NFR-10). "username" holds a keyed digest of the attempted username
+-- (admin.attempt_key): never the text that was typed, which may be a password
+-- entered in the wrong field, and never an IP address (NFR-11).
 CREATE TABLE IF NOT EXISTS admin_login_attempt (
     id           INTEGER PRIMARY KEY AUTOINCREMENT,
     username     TEXT NOT NULL,

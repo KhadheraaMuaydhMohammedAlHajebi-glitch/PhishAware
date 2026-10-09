@@ -42,6 +42,7 @@
     {% block content %}{% endblock %}
   </main>
   <footer class="footer">
+    {% if contact_line %}<p class="footer__contact">Questions about this study? Contact the researcher: {{ contact_line }}</p>{% endif %}
     <p>PhishAware prototype {{ app_version }}, MSIT 5910 Capstone Project. For learning only.</p>
     <p>Every organization, person, and web address here is fictional and uses reserved <code>.example</code> or <code>.test</code> domains. Links are disabled.</p>
   </footer>

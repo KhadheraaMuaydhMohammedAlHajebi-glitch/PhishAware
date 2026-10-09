@@ -13,6 +13,12 @@ label of the host as unbreakable and allows a break only before a dot, after
 the "@", and around the host, so a host stays on one line whenever it fits.
 Sentences that mention an address (lesson examples, feedback, message bodies)
 get the same treatment through the "addresses" filter.
+
+Punctuation that touches an address belongs to it. A host is one unit for the
+browser, and a line may end just before such a unit, so "(" was left alone at
+the end of a line on a phone, with the address it opens on the next line. The
+filter therefore puts a bracket or quotation mark in front of an address into
+the address's first part, and the punctuation that follows into its last.
 """
 
 import re
@@ -28,6 +34,8 @@ ADDRESS = re.compile(r"([^@\s]+@)([^@\s]+)")
 IN_TEXT = re.compile(
     r"(?<![\w.@%+-])(?:[A-Za-z0-9._%+-]+@)?[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}"
     r"(?![\w-])")
+OPENING = "([{\"'\u201c\u2018"           # brackets and quotation marks that open
+CLOSING = ")]}\"'\u201d\u2019.,;:!?"     # those that close, and sentence punctuation
 LABEL = Markup('<span class="host__label">{}</span>')
 HOST = Markup('<span class="host">{}</span>')
 BREAK = Markup("<wbr>")
@@ -61,16 +69,27 @@ def protect_addresses(text):
 
     "grade-portal.test" becomes one unit that may break only before its dot, so
     a narrow column can never show "grade-" at the end of one line and
-    "portal.test" on the next. The visible text is unchanged.
+    "portal.test" on the next. Punctuation that touches the address stays on its
+    line: in "(grade-portal.test)," the "(" belongs to the first part and the
+    ")," to the last. The visible text is unchanged.
     """
     pieces, position = [], 0
     for match in IN_TEXT.finditer(text):
-        pieces.append(escape(text[position:match.start()]))
+        before = text[position:match.start()]
+        opening = before[len(before.rstrip(OPENING)):]
+        end = match.end()
+        while end < len(text) and text[end] in CLOSING:
+            end += 1
+        pieces.append(escape(before[:len(before) - len(opening)]))
         local, at, host = match.group().rpartition("@")
+        labels = host_labels(host)
+        labels[-1] += text[match.end():end]
         if at:
-            pieces.append(LABEL.format(local + at) + BREAK)
-        pieces.append(HOST.format(BREAK.join(LABEL.format(label) for label in host_labels(host))))
-        position = match.end()
+            pieces.append(LABEL.format(opening + local + at) + BREAK)
+        else:
+            labels[0] = opening + labels[0]
+        pieces.append(HOST.format(BREAK.join(LABEL.format(label) for label in labels)))
+        position = end
     pieces.append(escape(text[position:]))
     return Markup("").join(pieces)
 
