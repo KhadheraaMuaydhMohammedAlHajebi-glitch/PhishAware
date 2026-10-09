@@ -14,6 +14,13 @@
 # throughput, and whether every score the system reports is correct; a browser
 # audit reports accessibility and page-load time. docs/evaluation.md explains
 # the method. The job fails when a requirement's budget is exceeded.
+#
+# Job 4, system and acceptance tests: the cases of docs/test-plan.md run against
+# the stack as its users would use it, in three browser engines, and the upgrade
+# procedure of the deployment guide is rehearsed from the previous release.
+#
+# Job 5, endurance: participants work at a human pace for several minutes while
+# the job watches for failed requests, wrong results, slowdown, and memory growth.
 name: CI
 
 on:
@@ -54,7 +61,7 @@ jobs:
           pip install -r requirements-dev.txt 2>&1 | tee install.log
 
       - name: Lint (flake8)
-        run: flake8 src tests scripts evaluation run.py wsgi.py gunicorn.conf.py
+        run: flake8 src tests system_tests scripts evaluation run.py wsgi.py gunicorn.conf.py
 
       - name: Unit tests with statement coverage (pytest, coverage.py)
         run: |
@@ -414,6 +421,215 @@ jobs:
         run: |
           docker compose logs --no-color --tail 60 > stack.log 2>&1 || true
           python3 scripts/ci_summary.py failure images.log build.log up.log up-wal.log stack.log
+
+      - name: Stop the stack
+        if: always()
+        run: docker compose down --volumes
+
+  system-test:
+    name: System and acceptance tests on the running stack
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    needs: container
+    env:
+      PHISHAWARE_VERSION: ci
+    steps:
+      - name: Check out the code
+        uses: actions/checkout@v6
+
+      - name: Write a throwaway .env with generated secrets
+        run: |
+          {
+            echo "PHISHAWARE_ENV=production"
+            echo "PHISHAWARE_SECRET_KEY=$(python3 -c 'import secrets; print(secrets.token_hex(32))')"
+            echo "PHISHAWARE_BACKUP_KEY=$(python3 -c 'import base64, os; print(base64.urlsafe_b64encode(os.urandom(32)).decode())')"
+            echo "PHISHAWARE_DOMAIN=localhost"
+            # Case AT-13 checks that this line reaches every page.
+            echo "PHISHAWARE_CONTACT=A. Researcher, researcher@northbridge.example"
+          } > .env
+          password="$(python3 -c 'import secrets; print(secrets.token_urlsafe(18))')"
+          echo "::add-mask::$password"
+          echo "EVALUATOR_PASSWORD=$password" >> "$GITHUB_ENV"
+
+      - name: Start the stack and create the evaluator account
+        run: |
+          bash scripts/ci_base_images.sh 2>&1 | tee images.log
+          docker compose build 2>&1 | tee build.log
+          docker compose up --detach --wait --wait-timeout 180 2>&1 | tee up.log
+          for attempt in $(seq 1 30); do
+            docker compose cp proxy:/data/caddy/pki/authorities/local/root.crt caddy-root.crt \
+              > /dev/null 2>&1 && break
+            sleep 1
+          done
+          curl --fail --silent --show-error --retry 15 --retry-delay 1 --retry-all-errors \
+            --cacert caddy-root.crt --output /dev/null https://localhost/healthz
+          docker compose exec -T app flask create-admin --username evaluator \
+            --password "$EVALUATOR_PASSWORD"
+
+      - name: Set up Python for the browser tests
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+
+      - name: Install Playwright and the browsers' system packages
+        timeout-minutes: 8
+        run: |
+          pip install -r evaluation/requirements.txt
+          python -m playwright install-deps chromium firefox webkit
+
+      - name: Download the browsers
+        timeout-minutes: 12
+        run: |
+          for attempt in 1 2 3; do
+            if timeout --kill-after=10 180 python -m playwright install chromium firefox webkit; then
+              exit 0
+            fi
+            echo "::warning title=Browser download::Attempt $attempt did not finish."
+          done
+          echo "::error title=Browser download::The browsers could not be downloaded in three attempts."
+          exit 1
+
+      # The acceptance cases run first, on the empty database, so that case AT-11
+      # can observe the reporting threshold before five participants exist.
+      - name: Acceptance and system cases in Chromium
+        run: |
+          python -m system_tests.run --level acceptance,system --strict \
+            --base-url https://localhost --cacert caddy-root.crt --ignore-https-errors \
+            --admin-user evaluator --admin-password "$EVALUATOR_PASSWORD" \
+            --cli "docker compose exec -T app flask" \
+            --crash-command "sh system_tests/crash_web_service.sh" \
+            --screenshots evidence/screenshots --json evidence/chromium.json \
+            --markdown "$GITHUB_STEP_SUMMARY" 2> chromium.err | tee system-chromium.log
+
+      - name: Acceptance cases in Firefox
+        if: always()
+        run: |
+          python -m system_tests.run --level acceptance --strict --browser firefox \
+            --base-url https://localhost --cacert caddy-root.crt --ignore-https-errors \
+            --admin-user evaluator --admin-password "$EVALUATOR_PASSWORD" \
+            --cli "docker compose exec -T app flask" \
+            --screenshots evidence/screenshots --json evidence/firefox.json \
+            --markdown "$GITHUB_STEP_SUMMARY" 2> firefox.err | tee acceptance-firefox.log
+
+      - name: Acceptance cases in WebKit
+        if: always()
+        run: |
+          python -m system_tests.run --level acceptance --strict --browser webkit \
+            --base-url https://localhost --cacert caddy-root.crt --ignore-https-errors \
+            --admin-user evaluator --admin-password "$EVALUATOR_PASSWORD" \
+            --cli "docker compose exec -T app flask" \
+            --screenshots evidence/screenshots --json evidence/webkit.json \
+            --markdown "$GITHUB_STEP_SUMMARY" 2> webkit.err | tee acceptance-webkit.log
+
+      # Last, because it replaces the stack's data: docs/deployment.md, section 8.
+      - name: Rehearse the upgrade from the previous release, and the rollback
+        if: always()
+        run: bash system_tests/upgrade_rehearsal.sh 2>&1 | tee upgrade.log
+
+      - name: Publish the test reports
+        if: always()
+        run: |
+          python3 scripts/ci_summary.py notice "System and acceptance cases, Chromium" system-chromium.log
+          python3 scripts/ci_summary.py notice "Acceptance cases, Firefox" acceptance-firefox.log
+          python3 scripts/ci_summary.py notice "Acceptance cases, WebKit" acceptance-webkit.log
+          python3 scripts/ci_summary.py notice "Upgrade and rollback rehearsal" upgrade.log
+
+      # Screenshots of the screens the cases looked at, one of every open tab when a
+      # case fails, and the full result of each run as JSON.
+      - name: Keep the evidence with the run
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: system-test-evidence
+          path: |
+            evidence/
+            system-chromium.log
+            acceptance-firefox.log
+            acceptance-webkit.log
+            upgrade.log
+          if-no-files-found: ignore
+          retention-days: 90
+
+      - name: Show the end of each log if a step failed
+        if: failure()
+        run: |
+          docker compose ps > ps.log 2>&1 || true
+          docker compose logs --no-color --tail 60 > stack.log 2>&1 || true
+          python3 scripts/ci_summary.py failure images.log build.log up.log chromium.err \
+            firefox.err webkit.err upgrade.log ps.log stack.log
+
+      - name: Stop the stack
+        if: always()
+        run: docker compose down --volumes
+
+  endurance:
+    name: Endurance test (stability over time)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    needs: container
+    env:
+      PHISHAWARE_VERSION: ci
+      # Ten minutes for a release, three for every other push.
+      SOAK_MINUTES: ${{ (startsWith(github.ref_name, 'release/') || github.ref_name == 'main') && '10' || '3' }}
+    steps:
+      - name: Check out the code
+        uses: actions/checkout@v6
+
+      - name: Write a throwaway .env with generated secrets
+        run: |
+          {
+            echo "PHISHAWARE_ENV=production"
+            echo "PHISHAWARE_SECRET_KEY=$(python3 -c 'import secrets; print(secrets.token_hex(32))')"
+            echo "PHISHAWARE_BACKUP_KEY=$(python3 -c 'import base64, os; print(base64.urlsafe_b64encode(os.urandom(32)).decode())')"
+            echo "PHISHAWARE_DOMAIN=localhost"
+          } > .env
+          password="$(python3 -c 'import secrets; print(secrets.token_urlsafe(18))')"
+          echo "::add-mask::$password"
+          echo "EVALUATOR_PASSWORD=$password" >> "$GITHUB_ENV"
+
+      - name: Start the stack and create the evaluator account
+        run: |
+          bash scripts/ci_base_images.sh 2>&1 | tee images.log
+          docker compose build 2>&1 | tee build.log
+          docker compose up --detach --wait --wait-timeout 180 2>&1 | tee up.log
+          for attempt in $(seq 1 30); do
+            docker compose cp proxy:/data/caddy/pki/authorities/local/root.crt caddy-root.crt \
+              > /dev/null 2>&1 && break
+            sleep 1
+          done
+          curl --fail --silent --show-error --retry 15 --retry-delay 1 --retry-all-errors \
+            --cacert caddy-root.crt --output /dev/null https://localhost/healthz
+          docker compose exec -T app flask create-admin --username evaluator \
+            --password "$EVALUATOR_PASSWORD"
+
+      - name: Endurance test - 25 participants at a human pace
+        run: |
+          python3 evaluation/soaktest.py --base-url https://localhost --cacert caddy-root.crt \
+            --users 25 --minutes "$SOAK_MINUTES" --think-time 1 \
+            --admin-user evaluator --admin-password "$EVALUATOR_PASSWORD" \
+            --memory-command "docker compose exec -T app cat /sys/fs/cgroup/memory.current" \
+            --markdown "$GITHUB_STEP_SUMMARY" | tee soak.log
+
+      - name: State of the stack after the test
+        if: always()
+        run: |
+          {
+            docker compose ps --format 'table {{.Service}}\t{{.Status}}'
+            docker compose exec -T app sh -c 'ls -l /data/phishaware.db* | awk "{print \$5, \$9}"'
+            docker compose exec -T jobs flask jobs-status
+          } 2>&1 | tee after.log
+
+      - name: Publish the measurements
+        if: always()
+        run: |
+          python3 scripts/ci_summary.py notice "Endurance test" soak.log
+          python3 scripts/ci_summary.py notice "Stack after the endurance test" after.log
+
+      - name: Show the end of the stack's log if a step failed
+        if: failure()
+        run: |
+          docker compose logs --no-color --tail 60 > stack.log 2>&1 || true
+          python3 scripts/ci_summary.py failure images.log build.log up.log stack.log
 
       - name: Stop the stack
         if: always()
