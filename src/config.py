@@ -69,6 +69,13 @@ class Config:
     # name@example.edu".
     CONTACT = os.environ.get("PHISHAWARE_CONTACT")
 
+    # The largest request body that is read (NFR-09). The largest form of the
+    # application, the survey, is under 300 bytes, so 64 kB leaves room for a
+    # long passphrase and for nothing else. A larger request is answered with
+    # status 413 before its body is read. Without a limit, the framework parses
+    # a form of any size: one request of 50 MB made it allocate 150 MB more.
+    MAX_CONTENT_LENGTH = 64 * 1024
+
     # Session-cookie hardening (NFR-08). Secure is on by default in production;
     # PHISHAWARE_COOKIE_SECURE=0 exists only for a plain-HTTP smoke test.
     SESSION_COOKIE_HTTPONLY = True
