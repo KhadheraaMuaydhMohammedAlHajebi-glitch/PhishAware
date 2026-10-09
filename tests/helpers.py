@@ -35,6 +35,19 @@ def open_backup(key, blob):
     return AESGCM(base64.urlsafe_b64decode(key)).decrypt(body[:12], body[12:], BACKUP_MARKER)
 
 
+def known_defect(*identifiers):
+    """Mark a case that fails because of a defect that is still open (docs/test-plan.md).
+
+    The case runs as before. Its failure is reported but does not stop the pipeline,
+    so that the later jobs can test the rest of the system. As soon as the case
+    passes, the run fails, so that the marker is removed together with the defect.
+    """
+    def mark(case):
+        case.known_defect = ", ".join(identifiers)
+        return unittest.expectedFailure(case)
+    return mark
+
+
 class AppTestCase(unittest.TestCase):
     """Creates an isolated app so tests never touch the development database."""
 

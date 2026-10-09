@@ -53,7 +53,8 @@ def bandit_result(text):
 def quality():
     """Summarise the test, coverage, and security-scan logs."""
     rows = [
-        ("Tests", last_match(r"^=*\s*(\d+ passed.*?)\s*=*$", read("pytest.log"))),
+        ("Tests", last_match(r"^=*\s*((?:\d+ failed, )?\d+ passed.*?)\s*=*$",
+                             read("pytest.log"))),
         ("Statement coverage", last_match(r"^TOTAL\s+(.*)$", read("coverage.txt"))),
         ("Bandit", bandit_result(read("bandit.txt"))),
         ("pip-audit", last_match(r"^(No known vulnerabilities found.*|Found \d+ known.*)$",
