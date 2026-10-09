@@ -453,6 +453,7 @@ jobs:
 
       - name: Start the stack and create the evaluator account
         run: |
+          bash scripts/ci_base_images.sh 2>&1 | tee images.log
           docker compose build 2>&1 | tee build.log
           docker compose up --detach --wait --wait-timeout 180 2>&1 | tee up.log
           for attempt in $(seq 1 30); do
@@ -497,6 +498,7 @@ jobs:
             --admin-user evaluator --admin-password "$EVALUATOR_PASSWORD" \
             --cli "docker compose exec -T app flask" \
             --crash-command "sh system_tests/crash_web_service.sh" \
+            --screenshots evidence/screenshots --json evidence/chromium.json \
             --markdown "$GITHUB_STEP_SUMMARY" 2> chromium.err | tee system-chromium.log
 
       - name: Acceptance cases in Firefox
@@ -506,6 +508,7 @@ jobs:
             --base-url https://localhost --cacert caddy-root.crt --ignore-https-errors \
             --admin-user evaluator --admin-password "$EVALUATOR_PASSWORD" \
             --cli "docker compose exec -T app flask" \
+            --screenshots evidence/screenshots --json evidence/firefox.json \
             --markdown "$GITHUB_STEP_SUMMARY" 2> firefox.err | tee acceptance-firefox.log
 
       - name: Acceptance cases in WebKit
@@ -515,6 +518,7 @@ jobs:
             --base-url https://localhost --cacert caddy-root.crt --ignore-https-errors \
             --admin-user evaluator --admin-password "$EVALUATOR_PASSWORD" \
             --cli "docker compose exec -T app flask" \
+            --screenshots evidence/screenshots --json evidence/webkit.json \
             --markdown "$GITHUB_STEP_SUMMARY" 2> webkit.err | tee acceptance-webkit.log
 
       # Last, because it replaces the stack's data: docs/deployment.md, section 8.
@@ -530,13 +534,29 @@ jobs:
           python3 scripts/ci_summary.py notice "Acceptance cases, WebKit" acceptance-webkit.log
           python3 scripts/ci_summary.py notice "Upgrade and rollback rehearsal" upgrade.log
 
+      # Screenshots of the screens the cases looked at, one of every open tab when a
+      # case fails, and the full result of each run as JSON.
+      - name: Keep the evidence with the run
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: system-test-evidence
+          path: |
+            evidence/
+            system-chromium.log
+            acceptance-firefox.log
+            acceptance-webkit.log
+            upgrade.log
+          if-no-files-found: ignore
+          retention-days: 90
+
       - name: Show the end of each log if a step failed
         if: failure()
         run: |
           docker compose ps > ps.log 2>&1 || true
           docker compose logs --no-color --tail 60 > stack.log 2>&1 || true
-          python3 scripts/ci_summary.py failure build.log up.log chromium.err firefox.err \
-            webkit.err upgrade.log ps.log stack.log
+          python3 scripts/ci_summary.py failure images.log build.log up.log chromium.err \
+            firefox.err webkit.err upgrade.log ps.log stack.log
 
       - name: Stop the stack
         if: always()
@@ -569,6 +589,7 @@ jobs:
 
       - name: Start the stack and create the evaluator account
         run: |
+          bash scripts/ci_base_images.sh 2>&1 | tee images.log
           docker compose build 2>&1 | tee build.log
           docker compose up --detach --wait --wait-timeout 180 2>&1 | tee up.log
           for attempt in $(seq 1 30); do
@@ -608,7 +629,7 @@ jobs:
         if: failure()
         run: |
           docker compose logs --no-color --tail 60 > stack.log 2>&1 || true
-          python3 scripts/ci_summary.py failure build.log up.log stack.log
+          python3 scripts/ci_summary.py failure images.log build.log up.log stack.log
 
       - name: Stop the stack
         if: always()
