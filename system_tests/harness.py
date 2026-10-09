@@ -63,6 +63,8 @@ DASHBOARD_COUNTS = ("consented", "pre_done", "lessons_opened", "complete", "surv
 NEUTRAL = (3,) * 10          # ten ratings that score 50.0
 DESKTOP = (1280, 800)
 PHONE = (360, 740)           # the narrowest supported window (NFR-04)
+# How WebKit's console begins its report of a refused style element (see SystemCase.shot).
+STYLE_REFUSED = "Refused to apply a stylesheet"
 
 
 class Settings:
@@ -702,14 +704,19 @@ class SystemCase(unittest.TestCase):
             return None
         folder.mkdir(parents=True, exist_ok=True)
         path = folder / f"{self.case_id}-{settings().engine}-{name}.png"
+        known = len(user.problems)
         try:
-            # caret="initial": by default Playwright hides the text cursor by adding a
-            # style element to the page. The application's content security policy
-            # refuses that element, as it should, and WebKit reports the refusal in
-            # the console, where it would count as a problem of the page.
-            user.page.screenshot(path=str(path), full_page=full_page, caret="initial")
-        except Exception:   # nosec B110 - evidence is best effort and must not hide the verdict
-            return None
+            user.page.screenshot(path=str(path), full_page=full_page)
+            user.page.evaluate("0")   # one round trip, so that the console has been read
+        except Exception:   # evidence is best effort and must not hide the verdict
+            path = None
+        # In WebKit, Playwright adds an empty style element to the page before every
+        # screenshot and removes it again, to bring animations into step. The
+        # application's content security policy refuses the element, as it should,
+        # and WebKit reports the refusal in the console. That message belongs to the
+        # screenshot and not to the page, so it is not kept as a problem of the page.
+        user.problems[known:] = [problem for problem in user.problems[known:]
+                                 if STYLE_REFUSED not in problem]
         return path
 
     # The three kinds of test user
