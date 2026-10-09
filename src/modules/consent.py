@@ -49,6 +49,11 @@ def consent_form():
 
 @bp.post("/consent")
 def give_consent():
+    if current_participant() is not None:
+        # A consent form sent in a live session, for example twice in a row: the
+        # participant has a record already. A second one would leave the first
+        # where nobody could continue or withdraw it.
+        return redirect(url_for("consent.dashboard"))
     adult = request.form.get("adult") == "yes"
     agreed = request.form.get("agree") == "yes"
     if not (adult and agreed):
