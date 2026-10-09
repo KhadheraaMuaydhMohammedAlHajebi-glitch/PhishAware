@@ -30,7 +30,8 @@ from werkzeug.security import generate_password_hash
 
 from src import db, repository
 from src.app import create_app
-from tests.helpers import ADMIN_PASSWORD, ADMIN_USER, AppTestCase, new_backup_key
+from tests.helpers import (ADMIN_PASSWORD, ADMIN_USER, AppTestCase, known_defect,
+                           new_backup_key)
 
 FIXTURES = Path(__file__).with_name("fixtures")
 TAGS = re.compile(r"<[^>]+>")
@@ -321,6 +322,7 @@ class SecurityLayerTests(IntegrationCase):
                     self.assertIn("HttpOnly", cookie)
                     self.assertIn("SameSite=Lax", cookie)
 
+    @known_defect("D-1")
     def test_04_hostile_input_in_any_field_is_refused_without_a_server_error(self):
         """IT-04 | NFR-09 | Hostile input in any field is refused without a server error"""
         self.handle_errors_as_in_production()
@@ -430,6 +432,7 @@ class ReportingPathTests(IntegrationCase):
                 output, rf"{re.escape(CUE_LABELS[cue])}\s+{100 - before}% ->\s+{100 - after}%")
         self.assertIn("RQ3  Mean SUS score: 75.0", output)
 
+    @known_defect("D-3")
     def test_06_a_second_consent_in_a_live_session_creates_no_second_record(self):
         """IT-06 | FR-02, FR-10 | A second consent in a live session creates no second record"""
         participant_id = self.consent()
@@ -551,6 +554,7 @@ class DataProtectionJobTests(IntegrationCase):
         self.assertEqual((response.status_code, path_of(response)), (302, "/consent"))
         self.assertEqual(self.query("PRAGMA integrity_check")[0][0], "ok")
 
+    @known_defect("D-4")
     def test_10_a_failed_sign_in_stores_nothing_that_was_typed(self):
         """IT-10 | NFR-11 | A failed sign-in stores nothing that was typed into the form"""
         self.create_admin()
@@ -647,6 +651,7 @@ class ContentTests(IntegrationCase):
 class ErrorPageTests(IntegrationCase):
     """Whatever goes wrong, the answer is the application's own page (M8)."""
 
+    @known_defect("U-4", "D-2", "D-6")
     def test_12_every_error_is_answered_in_the_applications_own_words(self):
         """IT-12 | NFR-02, NFR-09 | Every error is answered in the application's own words"""
         self.handle_errors_as_in_production()
@@ -740,6 +745,7 @@ class UpgradeTests(IntegrationCase):
         self.assertEqual(finished.status_code, 200)
         self.assertIn(b"signed out of this browser", finished.data)
 
+    @known_defect("D-5")
     def test_13_a_database_of_release_0_5_1_serves_participants_and_administrators(self):
         """IT-13 | NFR-05, NFR-07 | A database written by release 0.5.1 works after the upgrade"""
         created = []

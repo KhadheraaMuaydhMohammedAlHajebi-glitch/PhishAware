@@ -387,8 +387,9 @@ class WireTests(SystemCase):
         check("token in the address only", client.send(
             "POST", "/assessment/pre?csrf_token=" + quote(token),
             form={"scenario_id": item, "answer": "phishing"}), 400)
-        check("form of 600 kB", client.post(
-            "/assessment/pre", dict(valid, answer="p" * 600_000)), 400, 413)
+        # Larger than any form of the application, and refused for its size alone.
+        check("form of 200 kB", client.post(
+            "/assessment/pre", dict(valid, answer="p" * 200_000)), 413)
         for path in ("/static/../src/app.py", "/static/%2e%2e/src/config.py",
                      "/static/..%2f..%2fwsgi.py", "/practice/feedback/" + quote("' OR 1=1 --"),
                      "/practice/feedback/" + "P" * 3000, "/consent/", "/admin/export.csv/x",
