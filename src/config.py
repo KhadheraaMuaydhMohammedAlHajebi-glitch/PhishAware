@@ -92,6 +92,10 @@ class Config:
     # one of the settings in the OWASP Password Storage Cheat Sheet. Werkzeug's
     # own default (p = 1) is weaker than any setting on that list.
     ADMIN_PASSWORD_METHOD = "scrypt:32768:8:3"
+    # Digests of commonly used passwords of at least twelve characters. A new
+    # administrator password is refused when it is on the list (OWASP ASVS 5.0
+    # requirement 6.2.4). scripts/build_common_passwords.py builds the file.
+    COMMON_PASSWORD_FILE = str(BASE_DIR / "data" / "common-passwords.sha256")
 
     # Administrator access (M7, NFR-10): idle sign-out, a longest session, and
     # the sign-in rate limit.
