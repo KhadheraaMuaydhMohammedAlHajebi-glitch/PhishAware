@@ -72,7 +72,10 @@ def verify_csrf():
         return
     sent = request.form.get("csrf_token", "")
     expected = session.get("_csrf_token", "")
-    if not expected or not hmac.compare_digest(sent, expected):
+    # The comparison is made on bytes: compare_digest raises TypeError for text
+    # with a character outside ASCII, and anybody can send such a token.
+    if not expected or not hmac.compare_digest(
+            sent.encode("utf-8", "replace"), expected.encode("utf-8")):
         abort(400, description=CSRF_MESSAGE)
 
 
