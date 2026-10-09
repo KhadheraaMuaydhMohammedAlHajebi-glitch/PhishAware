@@ -128,6 +128,27 @@ class ConsentWordingTests(AppTestCase):
         self.assertIn("Contact the researcher: A. Researcher", page)
         self.assertIn("&lt;researcher@example.edu&gt;", page)   # escaped, never markup
 
+    def test_contact_line_is_at_the_foot_of_every_page(self):
+        # Finding U-2: the line stood on the consent page only, and a participant
+        # cannot open that page again during a session.
+        self.app.config["CONTACT"] = "A. Researcher <researcher@example.edu>"
+        line = ("Questions about this study? Contact the researcher: "
+                "A. Researcher &lt;researcher@example.edu&gt;")     # escaped, never markup
+        visitor = self.app.test_client()
+        self.consent()
+        for client, address in ((self.client, "/dashboard"), (self.client, "/assessment/pre"),
+                                (self.client, "/withdraw"), (self.client, "/no-such-page"),
+                                (visitor, "/consent"), (visitor, "/consent/declined"),
+                                (visitor, "/admin/login")):
+            footer = client.get(address).get_data(as_text=True).split("<footer", 1)[1]
+            self.assertIn(line, footer, address)
+
+    def test_pages_have_no_contact_line_when_none_is_configured(self):
+        self.consent()
+        for address in ("/dashboard", "/assessment/pre", "/no-such-page"):
+            self.assertNotIn("Questions about this study?",
+                             self.client.get(address).get_data(as_text=True), address)
+
     def test_missing_confirmation_shows_the_same_information_again(self):
         response = self.client.post("/consent", data={"adult": "yes", "csrf_token": self.token()})
         self.assertEqual(response.status_code, 400)

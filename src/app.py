@@ -65,6 +65,9 @@ def create_app(test_config=None):
             "retention_days": app.config["RETENTION_DAYS"],
             "backup_days": app.config["BACKUP_RETENTION_DAYS"],
             "session_hours": session_hours(),
+            # Whom to ask, on every page: a question can come up at any step,
+            # and the consent page cannot be opened again during a session.
+            "contact_line": app.config["CONTACT"],
         }
 
     errors.init_app(app)
