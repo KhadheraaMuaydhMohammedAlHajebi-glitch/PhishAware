@@ -6,6 +6,7 @@ fifth failed sign-in, the fifth completed participant, and the 15-minute idle li
 """
 
 import csv
+import hashlib
 import io
 import re
 import subprocess
@@ -128,6 +129,35 @@ class AdminAccessTests(AppTestCase):
             self.assertEqual(self.admin_sign_in(username=username).status_code, 401)
         self.assertEqual(self.admin_sign_in(password="guess").status_code, 401)
         self.assertEqual(self.admin_sign_in().status_code, 429)   # third failure reached the cap
+
+    def test_a_failed_sign_in_stores_nothing_that_was_typed(self):
+        # Defect D-4, found by case IT-10: the attempted name was stored as typed.
+        # People type a password into the user-name field by mistake, and it then
+        # stood in the database, and in every backup, in the clear.
+        typed = "Tr0ub4dor-typed-into-the-wrong-box"
+        self.assertEqual(self.admin_sign_in(username=typed, password="x").status_code, 401)
+        stored = self.query("SELECT username FROM admin_login_attempt")[0]["username"]
+        self.assertRegex(stored, r"^[0-9a-f]{64}$")
+        database = Path(self.app.config["DATABASE"]).read_bytes().lower()
+        self.assertNotIn(typed.lower().encode(), database)
+        # The limit still recognizes the name: four more failures, then the block.
+        for _ in range(4):
+            self.assertEqual(self.admin_sign_in(username=typed, password="x").status_code, 401)
+        self.assertEqual(self.admin_sign_in(username=typed, password="x").status_code, 429)
+        self.assertEqual(self.admin_sign_in().status_code, 302)     # another name is not blocked
+
+    def test_what_is_stored_cannot_be_tested_against_guesses_without_the_secret_key(self):
+        with self.app.app_context():
+            stored = admin.attempt_key("researcher")
+            self.assertEqual(stored, admin.attempt_key("researcher"))        # the same name again
+            self.assertNotEqual(stored, admin.attempt_key("researcher2"))
+            self.assertNotEqual(stored, hashlib.sha256(b"researcher").hexdigest())
+            self.app.config["SECRET_KEY"] = "the-key-of-another-installation"
+            self.assertNotEqual(stored, admin.attempt_key("researcher"))
+
+    def test_a_name_that_cannot_be_encoded_is_still_counted(self):
+        with self.app.app_context():
+            self.assertRegex(admin.attempt_key("lone surrogate \udc80"), r"^[0-9a-f]{64}$")
 
     def test_no_ip_address_is_stored_with_a_failed_attempt(self):
         self.admin_sign_in(password="guess")
