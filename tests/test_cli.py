@@ -1,5 +1,8 @@
 """Black-box tests for the command-line tools, run through Flask's test runner."""
 
+import json
+
+from src.db import get_db
 from tests.helpers import AppTestCase
 
 
@@ -9,6 +12,29 @@ class CommandLineTests(AppTestCase):
         self.assertIsNone(result.exception)
         self.assertEqual(result.exit_code, 0)
         self.assertIn("Database ready: 30 scenarios loaded.", result.output)
+
+    def test_init_db_on_a_database_in_use_updates_the_scenarios_and_keeps_every_record(self):
+        # The maintenance plan relies on this: scenario texts are stored when the
+        # database is created, so after a release that edits the scenario bank the
+        # operator runs "flask init-db" on the existing database.
+        participant_id = self.consent()
+        self.answer_pattern("/assessment/pre", [True] * 4)
+        current = self.query("SELECT content_json, cue FROM scenario WHERE id = 'A01'")[0]
+        with self.app.app_context():
+            get_db().execute(
+                "UPDATE scenario SET content_json = '{\"id\": \"A01\"}', cue = 'earlier' "
+                "WHERE id = 'A01'")                       # as an earlier release had stored it
+            get_db().commit()
+        result = self.app.test_cli_runner().invoke(args=["init-db"])
+        self.assertEqual(result.exit_code, 0, result.output)
+        self.assertIn("Database ready: 30 scenarios loaded.", result.output)
+        row = self.query("SELECT content_json, cue FROM scenario WHERE id = 'A01'")[0]
+        self.assertEqual(json.loads(row["content_json"]), json.loads(current["content_json"]))
+        self.assertEqual(row["cue"], current["cue"])
+        self.assertEqual(self.count("scenario"), 30)
+        self.assertEqual(self.query("SELECT id FROM participant")[0]["id"], participant_id)
+        self.assertEqual(self.count("response"), 4)
+        self.assertIn("4 of 12 answered", self.client.get("/dashboard").get_data(as_text=True))
 
     def test_analytics_command_summarises_the_cohort_without_identifiers(self):
         sessions = (
