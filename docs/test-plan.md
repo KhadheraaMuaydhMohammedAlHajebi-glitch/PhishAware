@@ -64,6 +64,8 @@ The cases leave scripted records behind. They must never run against the databas
 
 **Handling a defect.** It gets a number (D-n) and an entry in the test report. It is corrected on a `fix/` branch together with a test that fails before the correction and passes after it. The branch is merged into `develop` when the pipeline passes, and the cases that had failed are run again (the second test cycle).
 
+**A failing case while its defect is open.** An integration case runs in the quality gate, and a failure there stops the pipeline before the stack is built. A case that fails because of a recorded defect is therefore marked with the defect's number (`@known_defect("D-4")`). It still runs and is still reported as failed, but the pipeline goes on, so that the system and acceptance levels can be run in the same cycle. The marker cannot outlive the defect: once the case passes, the run fails until the marker is removed. System and acceptance cases are not marked, because their job is the last one and stops nothing.
+
 ## 6. Test cases
 
 Each case names the requirement it verifies. Critical acceptance cases are marked with an asterisk.
@@ -102,7 +104,7 @@ Each case names the requirement it verifies. Critical acceptance cases are marke
 | ST-09 | FR-10, NFR-08 | After Finish, the Back button, typed addresses, and a copy of the cookie show nothing; the next person gets a new identifier |
 | ST-10 | FR-11, NFR-10 | The researcher signs in, reads the statistics, downloads the export, and signs out; Back shows nothing |
 | ST-11 | NFR-08, NFR-11 | Every address reachable by links in every state is served with the security headers, the right caching rule, a hardened cookie, and no identifier |
-| ST-12 | NFR-09 | About fifty hostile requests (values, methods, bodies, paths, cookies) are refused without a server error |
+| ST-12 | NFR-09 | About fifty hostile requests (values, methods, bodies, paths, cookies) are refused without a server error, and a form of 200 kB is refused for its size |
 | ST-13 | FR-11, NFR-10 | Visitor, participant, and researcher cannot open each other's pages; a withdrawn participant's cookie opens nothing |
 | ST-14 | NFR-10 | The sixth failed sign-in is refused; an unknown name and a wrong password get the same answer after the same work |
 | ST-15 | NFR-12 | The health endpoint reports status, release, and scenario count, sets no cookie, and reveals nothing else |

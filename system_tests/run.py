@@ -15,8 +15,10 @@ and may continue on a second line:
 
 The report lists each case with its verdict, counts the verdicts by level, and
 states how many critical acceptance cases passed, which is the measure of
-objective O2. The exit status is 1 when a case failed, and with --strict also
-when a case could not be run.
+objective O2. A case that is marked with the number of an open defect
+(tests.helpers.known_defect) is reported as failed, with that number. The exit
+status is 1 when a case failed, and with --strict also when a case could not be
+run.
 """
 
 import argparse
@@ -79,7 +81,13 @@ class Recorder(unittest.TestResult):
             self._record(test, "FAIL")
         super().stopTest(test)
 
-    def _record(self, test, verdict, detail=""):
+    @staticmethod
+    def _known(test):
+        """The open defects a case is marked with, such as "D-4", or an empty text."""
+        method = getattr(type(test), getattr(test, "_testMethodName", ""), None)
+        return getattr(method, "known_defect", "")
+
+    def _record(self, test, verdict, detail="", known=""):
         case, requirement, critical, title = describe(test)
         seconds = time.perf_counter() - self._started if self._started else 0.0
         if self._partial and verdict in ("FAIL", "ERROR"):
@@ -90,7 +98,7 @@ class Recorder(unittest.TestResult):
             detail = "\n".join([*shown, detail]).strip()
         record = {"level": self.level, "id": case, "requirement": requirement,
                   "critical": critical, "title": title, "verdict": verdict,
-                  "seconds": round(seconds, 1), "detail": detail,
+                  "seconds": round(seconds, 1), "detail": detail, "known": known,
                   # What a case measured, when it sets "self.note".
                   "note": getattr(test, "note", "") if verdict == "PASS" else ""}
         self.records.append(record)
@@ -98,6 +106,8 @@ class Recorder(unittest.TestResult):
         self.stream.write(format_case(record) + "\n")
         if record["note"]:
             self.stream.write(f"{'':<25}{record['note']}\n")
+        if known:
+            self.stream.write(f"{'':<25}known defect, still open: {known}\n")
         self.stream.flush()
 
     @staticmethod
@@ -125,8 +135,17 @@ class Recorder(unittest.TestResult):
             self.records.append({
                 "level": self.level, "id": "-", "requirement": "", "critical": False,
                 "title": str(test), "verdict": "ERROR", "seconds": 0.0,
-                "detail": self._reason(error), "note": ""})
+                "detail": self._reason(error), "known": "", "note": ""})
             self.stream.write(f"  -       ERROR   {test}\n")
+
+    def addExpectedFailure(self, test, error):
+        super().addExpectedFailure(test, error)
+        self._record(test, "FAIL", self._reason(error), known=self._known(test) or "not named")
+
+    def addUnexpectedSuccess(self, test):
+        super().addUnexpectedSuccess(test)
+        self._record(test, "ERROR", "The case passes, but it is still marked as failing because of "
+                     f"{self._known(test) or 'a defect'}. Remove the marker.")
 
     def addSkip(self, test, reason):
         super().addSkip(test, reason)
@@ -175,7 +194,8 @@ def format_summary(report):
     if problems:
         lines += ["", "Cases that did not pass"]
         for record in problems:
-            lines.append(f"  {record['id']} {record['verdict']}: {record['title']}")
+            known = f" (known defect {record['known']})" if record["known"] else ""
+            lines.append(f"  {record['id']} {record['verdict']}{known}: {record['title']}")
             lines += [f"      {line}" for line in record["detail"].splitlines()]
     skipped = [r for r in report["cases"] if r["verdict"] == "NOT RUN"]
     if skipped:
@@ -199,9 +219,10 @@ def format_markdown(report):
                   f"{critical['cases']}** passed."]
     lines += ["", "| Case | Requirement | Verdict | Seconds | Title |", "|---|---|---|---|---|"]
     for record in report["cases"]:
+        known = f" (known: {record['known']})" if record["known"] else ""
         lines.append(f"| {record['id']}{' *' if record['critical'] else ''} | "
-                     f"{record['requirement']} | {record['verdict']} | {record['seconds']} | "
-                     f"{record['title']} |")
+                     f"{record['requirement']} | {record['verdict']}{known} | "
+                     f"{record['seconds']} | {record['title']} |")
     return lines + ["", f"**{report['result']}**", ""]
 
 
@@ -299,8 +320,11 @@ def main(argv=None):
     failed = sum(1 for r in records if r["verdict"] in ("FAIL", "ERROR"))
     not_run = sum(1 for r in records if r["verdict"] == "NOT RUN")
     passed = sum(1 for r in records if r["verdict"] == "PASS")
+    known = sum(1 for r in records if r["known"])
     if failed:
         result = f"{failed} of {len(records)} cases did not pass"
+        if known:
+            result += f" ({known} of them because of defects that are known and still open)"
     elif not_run:
         result = f"{passed} cases passed, {not_run} not run"
     else:
