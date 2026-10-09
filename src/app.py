@@ -4,12 +4,12 @@ import logging
 import secrets
 from pathlib import Path
 
-from flask import Flask, render_template
+from flask import Flask
 
 from src import __version__, db
 from src.config import ENVIRONMENTS, JOURNAL_MODES, Config
 from src.modules import (
-    admin, analytics, assessment, assets, consent, display, health, learning,
+    admin, analytics, assessment, assets, consent, display, errors, health, learning,
     maintenance, practice, results, survey,
 )
 from src.modules.scoring import CUE_LABELS
@@ -26,14 +26,6 @@ PERIOD_SETTINGS = {
     "RETENTION_DAYS": ("PHISHAWARE_RETENTION_DAYS", 1),
     "BACKUP_RETENTION_DAYS": ("PHISHAWARE_BACKUP_DAYS", 1),
     "JOB_INTERVAL": ("PHISHAWARE_JOB_INTERVAL", 60),
-}
-
-ERROR_TITLES = {
-    400: "Request not accepted",
-    403: "Not available yet",
-    404: "Page not found",
-    405: "Action not allowed",
-    500: "Something went wrong",
 }
 
 
@@ -75,7 +67,7 @@ def create_app(test_config=None):
             "session_hours": int(app.permanent_session_lifetime.total_seconds() // 3600),
         }
 
-    _register_error_handlers(app)
+    errors.init_app(app)
     _configure_logging(app)
 
     with app.app_context():
@@ -120,22 +112,6 @@ def finalise_config(app):
     # Secure attribute, so plain-HTTP development keeps the ordinary name.
     config["SESSION_COOKIE_NAME"] = (
         "__Host-session" if config["SESSION_COOKIE_SECURE"] else "session")
-
-
-def _register_error_handlers(app):
-    """Friendly error pages that never expose stack traces or internals."""
-    def handle_error(error):
-        code = getattr(error, "code", None) or 500
-        description = getattr(error, "description", "") if code != 500 else ""
-        return render_template(
-            "error.html",
-            code=code,
-            title=ERROR_TITLES.get(code, "Error"),
-            description=description,
-        ), code
-
-    for code in ERROR_TITLES:
-        app.register_error_handler(code, handle_error)
 
 
 def _configure_logging(app):
