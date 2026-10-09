@@ -12,11 +12,16 @@
     {% set number = loop.index %}
     <fieldset class="sus__item">
       <legend><span class="sus__num" aria-hidden="true">{{ number }}</span><span>{{ item }}</span></legend>
+      {# On a phone the five choices show their numbers only, and this line names
+         the two ends of the scale. Each choice keeps its full label for screen
+         readers, so the line and the numbers are hidden from them. #}
+      <p class="sus__ends" aria-hidden="true"><span>{{ scale[0][1] }}</span><span>{{ scale[-1][1] }}</span></p>
       <div class="sus__scale">
         {% for value, label in scale %}
         <label class="sus__choice">
           <input type="radio" name="q{{ number }}" value="{{ value }}" required{% if selected.get(number) == value %} checked{% endif %}>
-          <span>{{ label }}</span>
+          <span class="sus__value" aria-hidden="true">{{ value }}</span>
+          <span class="sus__label">{{ label }}</span>
         </label>
         {% endfor %}
       </div>

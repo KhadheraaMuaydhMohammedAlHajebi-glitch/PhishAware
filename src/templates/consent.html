@@ -6,6 +6,7 @@
   <h1>Before you begin</h1>
   <p class="lead">PhishAware is a short, voluntary activity that helps university students recognize phishing emails and websites. Read this page, then decide whether to take part.</p>
   {% if error %}<div class="alert alert--error" role="alert">{{ error }}</div>{% endif %}
+  {% if ended %}<div class="alert alert--info alert--text" role="status"><strong>No session is open in this browser.</strong> If you had started, your session has ended: a session closes when you finish or withdraw, and after {{ session_hours }} hours without activity. It cannot be reopened. To take part, read this page and agree again.</div>{% endif %}
   <div class="consent-grid">
     <section class="consent-block">
       <h2>What you will do</h2>

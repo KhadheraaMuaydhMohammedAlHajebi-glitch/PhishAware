@@ -31,12 +31,13 @@ def index():
     return redirect(url_for("consent.consent_form"))
 
 
-def _consent_page(error=None):
+def _consent_page(error=None, ended=False):
     return render_template(
         "consent.html",
         version=current_app.config["CONSENT_VERSION"],
         contact=current_app.config["CONTACT"],
         error=error,
+        ended=ended,
     )
 
 
@@ -44,7 +45,9 @@ def _consent_page(error=None):
 def consent_form():
     if current_participant() is not None:
         return redirect(url_for("consent.dashboard"))
-    return _consent_page()
+    # A step that was opened without a session sends the reader here with
+    # "ended" (security.require_consent), and the page then explains why.
+    return _consent_page(ended=request.args.get("ended") == "1")
 
 
 @bp.post("/consent")
