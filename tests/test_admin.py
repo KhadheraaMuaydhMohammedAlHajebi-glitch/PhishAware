@@ -7,7 +7,11 @@ fifth failed sign-in, the fifth completed participant, and the 15-minute idle li
 
 import csv
 import io
+import re
+import subprocess
+import sys
 import time
+from pathlib import Path
 from unittest import mock
 
 from src import repository
@@ -366,6 +370,61 @@ class CreateAdminCommandTests(AppTestCase):
 
     def test_twelve_character_password_is_accepted(self):
         self.assertEqual(self.create_admin(password="twelve-chars").exit_code, 0)
+
+    def test_commonly_used_password_is_rejected_in_any_capitalisation(self):
+        # Finding S-8 (OWASP ASVS 5.0, requirement 6.2.4); acceptance case AT-17.
+        for password in ("qwertyqwerty", "QwertyQWERTY", "123456789012", "passwordpassword",
+                         "iloveyou1234", "1q2w3e4r5t6y", "administrator"):
+            result = self.create_admin(password=password)
+            self.assertEqual(result.exit_code, 2, password)
+            self.assertIn("commonly used password", result.output)
+            self.assertNotIn(password, result.output)       # the password is never echoed
+        self.assertEqual(self.count("admin_user"), 0)
+
+    def test_commonly_used_password_cannot_replace_a_good_one(self):
+        self.create_admin()
+        self.assertEqual(self.create_admin(password="qwertyqwerty").exit_code, 2)
+        self.assertEqual(self.admin_sign_in().status_code, 302)     # the first password stands
+
+    def test_the_list_meets_the_requirement_it_implements(self):
+        path = Path(self.app.config["COMMON_PASSWORD_FILE"])
+        lines = path.read_text(encoding="ascii").splitlines()
+        digests = [line for line in lines if not line.startswith("#")]
+        self.assertGreaterEqual(len(digests), 3000)      # ASVS 6.2.4: at least the top 3,000
+        self.assertEqual(digests, sorted(set(digests)))  # no entry twice
+        for digest in digests:
+            self.assertRegex(digest, r"^[0-9a-f]{16}$")  # digests only: no password in the file
+        self.assertIn(f"# {len(digests):,} different passwords", "\n".join(lines[:5]))
+
+    def test_without_the_list_no_password_is_accepted(self):
+        self.app.config["COMMON_PASSWORD_FILE"] = str(Path(self._tmp.name) / "missing.sha256")
+        result = self.create_admin()
+        self.assertEqual(result.exit_code, 1)
+        self.assertIn("could not be read", result.output)
+        self.assertIn("the account was not changed", result.output)
+        self.assertEqual(self.count("admin_user"), 0)
+
+    def test_the_build_script_and_the_check_agree_on_the_form_of_an_entry(self):
+        # The script that builds the list is run on two small rankings, and the
+        # application then checks passwords against its output.
+        folder = Path(self._tmp.name)
+        (folder / "first.txt").write_text(
+            "short\nCorrectHorseBattery\nexactly12chr\n", encoding="utf-8")
+        (folder / "second.txt").write_text(
+            "elevenchars\nmonkeymonkeymonkey\nCORRECTHORSEBATTERY\n", encoding="utf-8")
+        script = Path(self.app.root_path).parent / "scripts" / "build_common_passwords.py"
+        built = subprocess.run(
+            [sys.executable, str(script), str(folder / "first.txt"), str(folder / "second.txt")],
+            capture_output=True, text=True, check=True).stdout
+        self.assertEqual(len(re.findall(r"(?m)^[0-9a-f]{16}$", built)), 3)   # one of them twice
+        self.assertIn("# 3 different passwords", built)
+        (folder / "list.sha256").write_text(built, encoding="ascii")
+        self.app.config["COMMON_PASSWORD_FILE"] = str(folder / "list.sha256")
+        with self.app.app_context():
+            for listed in ("correcthorsebattery", "Exactly12Chr", "MonkeyMonkeyMonkey"):
+                self.assertTrue(admin.is_common_password(listed), listed)
+            for other in ("short", "elevenchars", "correct-horse-battery-staple"):
+                self.assertFalse(admin.is_common_password(other), other)
 
     def test_invalid_usernames_are_rejected(self):
         for username in ("ab", "has space", "a" * 33, "-leading", "semi;colon"):

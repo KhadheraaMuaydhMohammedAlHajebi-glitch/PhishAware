@@ -3,9 +3,9 @@
 The researcher signs in to see aggregate pilot results and to download a
 de-identified export. Three rules shape the module:
 
-* Authentication: passwords are stored only as salted scrypt hashes, sign-in is
-  rate-limited without recording IP addresses, and a session ends after 15
-  idle minutes.
+* Authentication: passwords are stored only as salted scrypt hashes, a commonly
+  used password is refused, sign-in is rate-limited without recording IP
+  addresses, and a session ends after 15 idle minutes.
 * Aggregation: statistics appear only when at least five participants have
   finished both assessments, so a mean can never expose one person's score.
 * De-identification: the export has no random ID and no timestamp, and its rows
@@ -13,6 +13,7 @@ de-identified export. Three rules shape the module:
 """
 
 import csv
+import hashlib
 import io
 import secrets
 from datetime import datetime, timedelta, timezone
@@ -65,6 +66,24 @@ def _decoy_hash():
 def hash_password(password):
     """Salted scrypt hash with the configured cost parameters (NFR-10)."""
     return generate_password_hash(password, method=current_app.config["ADMIN_PASSWORD_METHOD"])
+
+
+@lru_cache(maxsize=2)
+def _common_passwords(path):
+    """The digests in the file of commonly used passwords, read once."""
+    with open(path, encoding="ascii") as handle:
+        lines = (line.strip() for line in handle)
+        return frozenset(line for line in lines if line and not line.startswith("#"))
+
+
+def is_common_password(password):
+    """True when the password, in any capitalisation, is on the list of common ones.
+
+    The list holds the first 16 hex digits of the SHA-256 digest of each password
+    in lower case (scripts/build_common_passwords.py).
+    """
+    digest = hashlib.sha256(password.lower().encode("utf-8", "replace")).hexdigest()[:16]
+    return digest in _common_passwords(current_app.config["COMMON_PASSWORD_FILE"])
 
 
 def _window_start():
@@ -213,6 +232,19 @@ def create_admin_command(username, password):
         raise click.BadParameter(
             f"use at least {MIN_PASSWORD_LENGTH} characters", param_hint="--password"
         )
+    try:
+        common = is_common_password(password)
+    except OSError as error:
+        # Without the list the check cannot be made, and an unchecked password
+        # is not accepted in its place.
+        raise click.ClickException(
+            "The list of commonly used passwords could not be read "
+            f"({current_app.config['COMMON_PASSWORD_FILE']}), so the password was not "
+            "checked and the account was not changed.") from error
+    if common:
+        raise click.BadParameter(
+            "this is a commonly used password, which an attacker would try first; choose "
+            "another, for example four unrelated words", param_hint="--password")
     created = repository.save_admin(username, hash_password(password))
     action = "created" if created else "updated; earlier sessions are signed out"
     click.echo(f"Administrator '{username}' {action}.")
