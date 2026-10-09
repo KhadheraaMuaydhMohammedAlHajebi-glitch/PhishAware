@@ -64,8 +64,9 @@ class Config:
     # The version is stored with every consent record. 1.1 added the retention
     # period, the session time limit, and the optional contact line.
     CONSENT_VERSION = "1.1"
-    # Whom participants can ask about the study, shown on the consent page when
-    # set, for example "Researcher name, name@example.edu".
+    # Whom participants can ask about the study, shown on the consent page and
+    # at the foot of every page when set, for example "Researcher name,
+    # name@example.edu".
     CONTACT = os.environ.get("PHISHAWARE_CONTACT")
 
     # Session-cookie hardening (NFR-08). Secure is on by default in production;
