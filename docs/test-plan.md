@@ -18,12 +18,13 @@ This plan says what is tested before release 0.7.0, at which level, with which c
 | The non-functional requirements that software can check: performance, accessibility checks, portability, reliability, scalability, security, privacy, retention (NFR-01, NFR-03 to NFR-12) | A penetration test by an independent party |
 | The operator's procedures: installation, backup, restore, upgrade, rollback | The pilot host itself, which does not exist yet; the stack is tested on hosted CI runners |
 | The six findings that release 0.6.0 left open (U-1 to U-5 and S-8) | Behaviour over weeks: the longest run is ten minutes |
+| | The scenario content as a measuring instrument: whether Forms A and B are equally difficult needs responses |
 
 ## 3. Levels of testing
 
 | Level | Question it answers | Technique | Where it runs | Cases |
 |---|---|---|---|---|
-| Unit and component (Unit 5 and 6) | Does each module do its job? | White-box tests of the scoring functions; black-box tests of each route, command, and job | In the Python process, with pytest; CI job 1 on Python 3.11 and 3.13 | 233 tests in `tests/` |
+| Unit and component (Unit 5 and 6) | Does each module do its job? | White-box tests of the scoring functions; black-box tests of each route, command, and job | In the Python process, with pytest; CI job 1 on Python 3.11 and 3.13 | 281 tests in `tests/` (233 in release 0.6.0; each correction of this release added its regression tests) |
 | **Integration** | Do the modules work together? | The real application against a real SQLite file, nothing replaced by a stand-in; every route enumerated from the application's own route table; real threads for concurrency; schema files of earlier releases | In the Python process; CI job 1 | IT-01 to IT-14 in `tests/test_integration.py` |
 | **System** | Does the deployed system work as a whole, also when things go wrong? | Black-box: a real browser and plain HTTPS against the running stack; an independent oracle computes what each scripted participant must see; counts are read from the administrator's dashboard, never from the database | The Compose stack; CI jobs 2 to 5 | ST-01 to ST-18 in `system_tests/test_system.py`; ST-19 to ST-24 are procedures with their own tools |
 | **Acceptance** | Does it do what was required? | One case for each functional requirement in the form given, when, then; one case for each open finding; the operator's commands | The Compose stack, in Chromium, Firefox, and WebKit; CI job 4 | AT-01 to AT-18 in `system_tests/test_acceptance.py` |
