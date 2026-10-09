@@ -95,6 +95,9 @@ jobs:
             echo "PHISHAWARE_DOMAIN=localhost"
           } > .env
 
+      - name: Fetch the base images
+        run: bash scripts/ci_base_images.sh 2>&1 | tee images.log
+
       - name: Build the image
         run: docker compose build 2>&1 | tee build.log
 
@@ -246,6 +249,7 @@ jobs:
         run: |
           python3 scripts/ci_summary.py notice "Running services" services.log
           python3 scripts/ci_summary.py notice "Smoke test over HTTPS" smoke.log
+          python3 scripts/ci_summary.py notice "Base images" images.log
           python3 scripts/ci_summary.py notice "Pinned dependencies" pins.log
           python3 scripts/ci_summary.py notice "TLS versions" tls.log
           python3 scripts/ci_summary.py notice "Files in the image" contents.log
@@ -258,8 +262,8 @@ jobs:
         run: |
           docker compose ps > ps.log 2>&1 || true
           docker compose logs --no-color --tail 60 > stack.log 2>&1 || true
-          python3 scripts/ci_summary.py failure build.log failfast.log up.log smoke.log \
-            tls.log tls11.log hardening.log ps.log stack.log
+          python3 scripts/ci_summary.py failure images.log build.log failfast.log up.log \
+            smoke.log tls.log tls11.log hardening.log ps.log stack.log
 
       - name: Stop the stack
         if: always()
@@ -290,6 +294,7 @@ jobs:
 
       - name: Start the stack and create the evaluator account
         run: |
+          bash scripts/ci_base_images.sh 2>&1 | tee images.log
           docker compose build 2>&1 | tee build.log
           docker compose up --detach --wait --wait-timeout 180 2>&1 | tee up.log
           for attempt in $(seq 1 30); do
@@ -408,7 +413,7 @@ jobs:
         if: failure()
         run: |
           docker compose logs --no-color --tail 60 > stack.log 2>&1 || true
-          python3 scripts/ci_summary.py failure build.log up.log up-wal.log stack.log
+          python3 scripts/ci_summary.py failure images.log build.log up.log up-wal.log stack.log
 
       - name: Stop the stack
         if: always()
