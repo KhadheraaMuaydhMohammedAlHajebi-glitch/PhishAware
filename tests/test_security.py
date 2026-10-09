@@ -25,6 +25,16 @@ class SecurityTests(AppTestCase):
         self.assertEqual(response.status_code, 400)
         self.assertEqual(self.count("participant"), 0)
 
+    def test_token_outside_ascii_is_refused_like_any_other_wrong_token(self):
+        # Found by case IT-04: such a token ended in an unhandled TypeError (status 500).
+        self.consent()
+        for token in ("t\u00e9st", "\u0631\u0645\u0632", "\U0001F600" * 8):
+            response = self.client.post("/assessment/pre", data={
+                "scenario_id": "A01", "answer": "phishing", "csrf_token": token})
+            self.assertEqual(response.status_code, 400, token)
+            self.assertIn(b"Your security token is missing or has expired", response.data)
+        self.assertEqual(self.count("response"), 0)
+
     def test_injection_style_scenario_id_is_rejected(self):
         self.consent()
         response = self.client.post("/assessment/pre", data={
