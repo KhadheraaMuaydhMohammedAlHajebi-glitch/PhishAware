@@ -48,6 +48,31 @@ class ConsentTests(AppTestCase):
             columns, {"seq", "id", "consent_version", "consented_at", "form_order", "status"}
         )
 
+    def test_second_consent_in_a_live_session_keeps_the_first_record(self):
+        # Found by case IT-06: the second form created a second participant, and
+        # the first record could no longer be continued or withdrawn.
+        participant_id = self.consent()
+        self.answer_pattern("/assessment/pre", [True] * 2)
+        response = self.client.post(
+            "/consent", data={"adult": "yes", "agree": "yes", "csrf_token": self.token()})
+        self.assertEqual(response.status_code, 302)
+        self.assertTrue(response.headers["Location"].endswith("/dashboard"))
+        self.assertEqual(self.count("participant"), 1)
+        with self.client.session_transaction() as session:
+            self.assertEqual(session["participant_id"], participant_id)
+        self.client.post("/withdraw", data={"csrf_token": self.token()})
+        self.assertEqual(self.count("participant"), 0)      # and it can still be withdrawn
+
+    def test_consent_after_finishing_starts_a_new_record(self):
+        self.complete_session(6, 9, SUS)
+        client = self.app.test_client()
+        self.reach_posttest(client)
+        self.answer_posttest(client=client)
+        client.post("/survey", data=self.survey_data(SUS, client))
+        client.post("/finish", data={"csrf_token": self.token(client)})
+        self.consent(client)                                # the same browser, a new person
+        self.assertEqual(self.count("participant"), 3)
+
     def test_withdrawal_deletes_all_linked_records(self):
         self.complete_session(6, 9, SUS)                 # another participant, who stays
         self.consent()
