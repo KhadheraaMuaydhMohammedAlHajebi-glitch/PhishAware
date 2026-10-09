@@ -22,7 +22,7 @@
     <div class="step__body">
       <h2>Pre-assessment</h2>
       <p>Twelve fictional emails and web pages from Form {{ progress.form_order[0] }}. Feedback comes later.</p>
-      {% if pre.started and not pre.done %}<progress value="{{ pre.answered }}" max="{{ pre.total }}">{{ pre.answered }} of {{ pre.total }} answered</progress>{% endif %}
+      {% if pre.started and not pre.done %}<progress value="{{ pre.answered }}" max="{{ pre.total }}" aria-hidden="true"></progress><p class="step__count">{{ pre.answered }} of {{ pre.total }} answered</p>{% endif %}
     </div>
     {% if pre.done %}
     <span class="badge badge--done">Baseline {{ '%.1f'|format(pre.score) }}%</span>
@@ -49,7 +49,7 @@
     <div class="step__body">
       <h2>Practice scenarios</h2>
       <p>Classify six scenarios and see the cues behind each answer straight away.</p>
-      {% if practice.started and not practice.done %}<progress value="{{ practice.answered }}" max="{{ practice.total }}">{{ practice.answered }} of {{ practice.total }} answered</progress>{% endif %}
+      {% if practice.started and not practice.done %}<progress value="{{ practice.answered }}" max="{{ practice.total }}" aria-hidden="true"></progress><p class="step__count">{{ practice.answered }} of {{ practice.total }} answered</p>{% endif %}
     </div>
     {% if practice.done %}
     <span class="badge badge--done">{{ practice.correct }} of {{ practice.total }} correct</span>
@@ -64,7 +64,7 @@
     <div class="step__body">
       <h2>Post-assessment</h2>
       <p>Twelve new items from Form {{ progress.form_order[1] }} to measure your progress.</p>
-      {% if post.started and not post.done %}<progress value="{{ post.answered }}" max="{{ post.total }}">{{ post.answered }} of {{ post.total }} answered</progress>{% endif %}
+      {% if post.started and not post.done %}<progress value="{{ post.answered }}" max="{{ post.total }}" aria-hidden="true"></progress><p class="step__count">{{ post.answered }} of {{ post.total }} answered</p>{% endif %}
     </div>
     {% if post.done %}
     <span class="badge badge--done">Final {{ '%.1f'|format(post.score) }}%</span>
