@@ -18,11 +18,13 @@ from unittest import mock
 from cryptography.exceptions import InvalidTag
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
+from src import db
 from src.db import get_db
 from src.modules import maintenance
 from tests.helpers import BACKUP_MARKER, AppTestCase, new_backup_key, open_backup, seal_backup
 
 SUS = [4, 2, 5, 1, 4, 2, 5, 2, 4, 1]
+FIXTURES = Path(__file__).with_name("fixtures")
 NOON = datetime(2026, 10, 8, 12, 0, 0, tzinfo=timezone.utc)
 
 
@@ -196,6 +198,32 @@ class BackupTests(BackupCase):
         self.assertEqual(self.count("sus_response"), 1)
         self.assertEqual(self.count("admin_user"), 1)
         self.assertEqual(self.admin_sign_in().status_code, 302)   # the restored account works
+
+    def test_snapshot_of_release_0_5_1_is_upgraded_when_it_is_restored(self):
+        # A snapshot holds the schema of the release that wrote it. Restoring one
+        # of release 0.5.1 brought back the administrator table that release
+        # 0.6.0 could not use (defect D-5).
+        older = sqlite3.connect(":memory:")
+        older.executescript((FIXTURES / "schema-0.5.1.sql").read_text(encoding="utf-8"))
+        db.seed_scenarios(older, self.app.config["SCENARIO_FILE"])
+        older.execute(
+            "INSERT INTO participant (id, consent_version, consented_at, form_order) "
+            "VALUES ('6f1f0f5e-3f0b-4c57-9d53-0c1f0a8f2b11', '1.0', "
+            "'2026-09-30T09:00:00+00:00', 'BA')")
+        older.commit()
+        self.folder.mkdir(parents=True)
+        snapshot = self.folder / "phishaware-20260930T120000Z.db.enc"
+        snapshot.write_bytes(seal_backup(self.key, older.serialize()))
+        older.close()
+        self.assertEqual(self.query("PRAGMA user_version")[0][0], 2)     # the live database
+        result = self.run_command("restore-db", str(snapshot), "--yes")
+        self.assertEqual(result.exit_code, 0, result.output)
+        self.assertIn("1 participant record(s)", result.output)
+        self.assertEqual(self.query("PRAGMA user_version")[0][0], 2)     # migrated again
+        self.assertEqual([row["name"] for row in self.query("PRAGMA table_info(admin_user)")],
+                         ["id", "username", "password_hash", "session_stamp"])
+        self.assertEqual(self.create_admin().exit_code, 0)
+        self.assertEqual(self.admin_sign_in().status_code, 302)
 
     def test_restore_asks_for_confirmation(self):
         path = self.backup()

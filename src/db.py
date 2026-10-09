@@ -1,7 +1,12 @@
-"""Data tier: SQLite connection management, schema creation, and seeding.
+"""Data tier: SQLite connection management, schema creation and upgrade, and seeding.
 
 Every query in PhishAware uses "?" placeholders (parameterized queries), so
 user input is never concatenated into SQL (NFR-09, OWASP ASVS).
+
+A database outlives the release that created it. schema.sql creates whatever
+is missing, but CREATE TABLE IF NOT EXISTS leaves an existing table as it is,
+so a change to an existing table needs a migration step (see migrate). The
+database file records the schema version it has reached.
 """
 
 import json
@@ -23,6 +28,22 @@ _SEED_SQL = (
     "label = excluded.label, content_json = excluded.content_json"
 )
 
+
+# The schema version this release writes into the database file (PRAGMA
+# user_version). Releases 0.4.0 to 0.6.0 recorded no version, so their
+# databases read 0; their schema counts as version 1.
+SCHEMA_VERSION = 2
+
+# The administrator table as version 2 defines it. A migration step carries its
+# own copy of a definition, so that a later edit of schema.sql cannot change
+# what an earlier step did.
+_ADMIN_USER_V2 = (
+    "CREATE TABLE admin_user ("
+    "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+    "username TEXT NOT NULL UNIQUE, "
+    "password_hash TEXT NOT NULL, "
+    "session_stamp TEXT NOT NULL)"
+)
 
 # PRAGMA statements cannot take "?" parameters, so each allowed mode has its own
 # constant statement and no SQL text is ever assembled from a setting.
@@ -98,14 +119,88 @@ def seed_scenarios(connection, path):
     return len(bank["scenarios"])
 
 
-def ensure_schema():
-    """Create any table or index that is missing.
+def _to_version_2(connection):
+    """Release 0.7.0.
 
-    Every statement in schema.sql is IF NOT EXISTS, so running the script again
-    is harmless. Running it on each start upgrades a database that an earlier
-    release created, for example by adding the tables that M7 introduced.
+    Releases 0.4.0 to 0.5.1 created the table admin_user for a module that was
+    still planned, with a column "created_at" and without "session_stamp".
+    Release 0.6.0 added the module but could not store an administrator in such
+    a database ("no such column: session_stamp"), because CREATE TABLE IF NOT
+    EXISTS had left the older table in place. The table is rebuilt in its
+    present form, and any row it holds is kept.
+
+    Release 0.6.0 stored the user name of a failed sign-in as it was typed. This
+    release stores a keyed digest in its place (admin.attempt_key), so the older
+    rows can never match again. They are deleted; at most the last 15 minutes
+    of the sign-in rate limit start again from zero.
+    """
+    columns = {row[1] for row in connection.execute("PRAGMA table_info(admin_user)")}
+    if "session_stamp" not in columns:
+        connection.execute("ALTER TABLE admin_user RENAME TO admin_user_before_0_6")
+        connection.execute(_ADMIN_USER_V2)
+        # No cookie carries this stamp, so no session of an earlier release continues.
+        connection.execute(
+            "INSERT INTO admin_user (id, username, password_hash, session_stamp) "
+            "SELECT id, username, password_hash, 'set by the upgrade to schema version 2' "
+            "FROM admin_user_before_0_6")
+        connection.execute("DROP TABLE admin_user_before_0_6")
+    connection.execute("DELETE FROM admin_login_attempt")
+    connection.execute("PRAGMA user_version = 2")
+
+
+# (version reached, step), oldest first. A step changes what schema.sql cannot
+# change in an existing database, and records its version as its last statement.
+_MIGRATIONS = ((2, _to_version_2),)
+
+
+def schema_version():
+    """The schema version recorded in the database file."""
+    return get_db().execute("PRAGMA user_version").fetchone()[0]
+
+
+def migrate():
+    """Apply the migration steps that this database has not seen. Returns their versions.
+
+    All steps run in one transaction that takes the write lock before it reads
+    the version. When several processes start at once (two web workers and the
+    jobs service do), one of them migrates, and the others wait and then find
+    nothing to do. If a step fails, the transaction is rolled back, the database
+    is exactly as it was, and the start-up stops with the error.
+    """
+    connection = get_db()
+    connection.execute("BEGIN IMMEDIATE")
+    try:
+        version = connection.execute("PRAGMA user_version").fetchone()[0]
+        pending = [(target, step) for target, step in _MIGRATIONS if target > version]
+        for _, step in pending:
+            step(connection)
+        connection.execute("COMMIT")
+    except BaseException:
+        connection.execute("ROLLBACK")
+        raise
+    return [target for target, _ in pending]
+
+
+def ensure_schema():
+    """Bring the database to this release's schema. Returns the migration steps applied.
+
+    schema.sql creates any table or index that is missing; every statement in it
+    is IF NOT EXISTS, so running it again is harmless. migrate() then changes
+    what that cannot change. Both run on every start and after a restore, so a
+    database or a snapshot of an earlier release is upgraded when it is opened.
     """
     get_db().executescript(SCHEMA_FILE.read_text(encoding="utf-8"))
+    applied = migrate()
+    if applied:
+        current_app.logger.info("Database schema brought to version %d.", applied[-1])
+    version = schema_version()
+    if version > SCHEMA_VERSION:
+        current_app.logger.warning(
+            "The database has schema version %d, and this release knows version %d: a newer "
+            "release has written to it. If this release fails on it, restore the snapshot "
+            "taken before the upgrade (docs/deployment.md, section 8).",
+            version, SCHEMA_VERSION)
+    return applied
 
 
 def init_db():
