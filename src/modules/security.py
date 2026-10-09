@@ -14,6 +14,7 @@ from functools import wraps
 
 from flask import abort, current_app, g, redirect, request, session, url_for
 from flask.sessions import SecureCookieSessionInterface
+from werkzeug.exceptions import BadRequest
 
 from src import repository
 
@@ -25,7 +26,18 @@ ADMIN_SESSION_KEYS = ("admin_user", "admin_since", "admin_seen", "admin_stamp")
 STATE_CHANGING_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
 CSRF_MESSAGE = (
     "Your security token is missing or has expired. "
-    "Go back, reload the page, and try again."
+    "Go back, reload the page, and try again. If this happens again, allow cookies for "
+    "this site: PhishAware needs one cookie to keep your place."
+)
+# The two forms that start a session. When one of them arrives without a token,
+# the page was open for too long or the cookie was refused, and reloading helps.
+# Every other form belongs to a session, and without a token that session is over.
+SESSION_STARTING_FORMS = frozenset({"consent.give_consent", "admin.login"})
+SESSION_ENDED_MESSAGE = (
+    "This form arrived without an open session, so nothing was stored or changed. "
+    "A session closes after {hours} hours without activity, or when the browser clears "
+    "its cookies. It cannot be reopened, and its answers can no longer be linked to you. "
+    "To take part again, begin at the start page."
 )
 # OWASP ASVS 5.0 requirement 3.4.3 asks for object-src 'none' and base-uri 'none'
 # as the minimum; everything else may load from this origin only.
@@ -51,6 +63,17 @@ class Sha256SessionInterface(SecureCookieSessionInterface):
     digest_method = staticmethod(hashlib.sha256)
 
 
+class SessionEnded(BadRequest):
+    """A form of a running session arrived, but the browser holds no session."""
+
+    title = "Your session has ended"
+
+
+def session_hours():
+    """The time without activity after which a session closes, in whole hours."""
+    return int(current_app.permanent_session_lifetime.total_seconds() // 3600)
+
+
 def forget_client_data(response):
     """Ask the browser to clear what it holds for this site; returns the response."""
     response.headers["Clear-Site-Data"] = CLEAR_SITE_DATA
@@ -72,6 +95,10 @@ def verify_csrf():
         return
     sent = request.form.get("csrf_token", "")
     expected = session.get("_csrf_token", "")
+    if not expected and request.endpoint not in SESSION_STARTING_FORMS:
+        # The session's cookie has expired or is gone. "Reload and try again"
+        # would send this reader in a circle, so the page says what happened.
+        raise SessionEnded(description=SESSION_ENDED_MESSAGE.format(hours=session_hours()))
     # The comparison is made on bytes: compare_digest raises TypeError for text
     # with a character outside ASCII, and anybody can send such a token.
     if not expected or not hmac.compare_digest(
@@ -120,7 +147,8 @@ def require_consent(view):
         participant = current_participant()
         if participant is None:
             session.pop("participant_id", None)
-            return redirect(url_for("consent.consent_form"))
+            # "ended" makes the consent page say why the reader has landed there.
+            return redirect(url_for("consent.consent_form", ended=1))
         g.participant = participant
         return view(*args, **kwargs)
     return wrapped

@@ -9,6 +9,7 @@ import csv
 import io
 import time
 from unittest import mock
+from urllib.parse import urlsplit
 
 from src import repository
 from src.db import get_db
@@ -222,7 +223,7 @@ class AdminAccessTests(AppTestCase):
         self.admin_sign_in()
         response = self.client.get("/dashboard")                       # no participant role
         self.assertEqual(response.status_code, 302)
-        self.assertTrue(response.headers["Location"].endswith("/consent"))
+        self.assertEqual(urlsplit(response.headers["Location"]).path, "/consent")
 
     def test_signing_in_replaces_a_participant_session(self):
         self.consent()

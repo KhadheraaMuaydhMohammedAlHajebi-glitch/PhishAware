@@ -15,7 +15,7 @@ from src.modules import (
 from src.modules.scoring import CUE_LABELS
 from src.modules.security import (
     Sha256SessionInterface, apply_security_headers, current_admin, current_participant,
-    get_csrf_token, verify_csrf,
+    get_csrf_token, session_hours, verify_csrf,
 )
 
 MIN_SECRET_LENGTH = 32
@@ -64,7 +64,7 @@ def create_app(test_config=None):
             # promise shown to participants cannot drift from the configuration.
             "retention_days": app.config["RETENTION_DAYS"],
             "backup_days": app.config["BACKUP_RETENTION_DAYS"],
-            "session_hours": int(app.permanent_session_lifetime.total_seconds() // 3600),
+            "session_hours": session_hours(),
         }
 
     errors.init_app(app)
