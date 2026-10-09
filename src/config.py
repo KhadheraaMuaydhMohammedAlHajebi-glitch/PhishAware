@@ -64,9 +64,17 @@ class Config:
     # The version is stored with every consent record. 1.1 added the retention
     # period, the session time limit, and the optional contact line.
     CONSENT_VERSION = "1.1"
-    # Whom participants can ask about the study, shown on the consent page when
-    # set, for example "Researcher name, name@example.edu".
+    # Whom participants can ask about the study, shown on the consent page and
+    # at the foot of every page when set, for example "Researcher name,
+    # name@example.edu".
     CONTACT = os.environ.get("PHISHAWARE_CONTACT")
+
+    # The largest request body that is read (NFR-09). The largest form of the
+    # application, the survey, is under 300 bytes, so 64 kB leaves room for a
+    # long passphrase and for nothing else. A larger request is answered with
+    # status 413 before its body is read. Without a limit, the framework parses
+    # a form of any size: one request of 50 MB made it allocate 150 MB more.
+    MAX_CONTENT_LENGTH = 64 * 1024
 
     # Session-cookie hardening (NFR-08). Secure is on by default in production;
     # PHISHAWARE_COOKIE_SECURE=0 exists only for a plain-HTTP smoke test.
@@ -91,6 +99,10 @@ class Config:
     # one of the settings in the OWASP Password Storage Cheat Sheet. Werkzeug's
     # own default (p = 1) is weaker than any setting on that list.
     ADMIN_PASSWORD_METHOD = "scrypt:32768:8:3"
+    # Digests of commonly used passwords of at least twelve characters. A new
+    # administrator password is refused when it is on the list (OWASP ASVS 5.0
+    # requirement 6.2.4). scripts/build_common_passwords.py builds the file.
+    COMMON_PASSWORD_FILE = str(BASE_DIR / "data" / "common-passwords.sha256")
 
     # Administrator access (M7, NFR-10): idle sign-out, a longest session, and
     # the sign-in rate limit.

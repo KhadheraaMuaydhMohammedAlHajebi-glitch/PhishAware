@@ -31,12 +31,13 @@ def index():
     return redirect(url_for("consent.consent_form"))
 
 
-def _consent_page(error=None):
+def _consent_page(error=None, ended=False):
     return render_template(
         "consent.html",
         version=current_app.config["CONSENT_VERSION"],
         contact=current_app.config["CONTACT"],
         error=error,
+        ended=ended,
     )
 
 
@@ -44,11 +45,18 @@ def _consent_page(error=None):
 def consent_form():
     if current_participant() is not None:
         return redirect(url_for("consent.dashboard"))
-    return _consent_page()
+    # A step that was opened without a session sends the reader here with
+    # "ended" (security.require_consent), and the page then explains why.
+    return _consent_page(ended=request.args.get("ended") == "1")
 
 
 @bp.post("/consent")
 def give_consent():
+    if current_participant() is not None:
+        # A consent form sent in a live session, for example twice in a row: the
+        # participant has a record already. A second one would leave the first
+        # where nobody could continue or withdraw it.
+        return redirect(url_for("consent.dashboard"))
     adult = request.form.get("adult") == "yes"
     agreed = request.form.get("agree") == "yes"
     if not (adult and agreed):

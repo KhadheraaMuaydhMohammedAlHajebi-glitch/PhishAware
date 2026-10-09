@@ -81,12 +81,40 @@ class AddressesInTextTests(unittest.TestCase):
             '<span class="host__label">northbrldge</span><wbr>'
             '<span class="host__label">.example</span></span> is not genuine'), markup)
 
-    def test_punctuation_around_a_host_stays_outside_it(self):
-        markup = str(display.protect_addresses("(northbridge-admin.example), then learn.x.test."))
-        self.assertIn('(<span class="host"><span class="host__label">northbridge-admin</span>',
-                      markup)
-        self.assertIn('<span class="host__label">.example</span></span>),', markup)
-        self.assertTrue(markup.endswith('<span class="host__label">.test</span></span>.'))
+    def test_punctuation_that_touches_a_host_stays_on_its_line(self):
+        # Finding U-5: on a phone, "(" ended a line and the address began the next.
+        sentence = "A look-alike domain (northbridge-admin.example), then learn.x.test."
+        markup = str(display.protect_addresses(sentence))
+        self.assertEqual(
+            LABEL.findall(markup),
+            ["(northbridge-admin", ".example),", "learn", ".x", ".test."])
+        self.assertTrue(markup.startswith('A look-alike domain <span class="host">'), markup)
+        self.assertEqual(self.text_of(markup), sentence)       # nothing added or lost
+
+    def test_a_bracket_before_an_email_address_stays_with_its_local_part(self):
+        sentence = 'Dana Lee (dana.lee@student.northbridge.example) shared a file'
+        markup = str(display.protect_addresses(sentence))
+        self.assertIn('Dana Lee <span class="host__label">(dana.lee@</span><wbr>'
+                      '<span class="host"><span class="host__label">student</span>', markup)
+        self.assertIn('<span class="host__label">.example)</span></span> shared a file', markup)
+        self.assertEqual(self.text_of(markup), sentence)
+
+    def test_quotation_marks_and_sentence_punctuation_are_kept_with_the_address(self):
+        for sentence, first, last in (
+                ('Type "paywave.example".', '&#34;paywave', '.example&#34;.'),
+                ("Is it paywave.example?", "paywave", ".example?"),
+                ("See [help.northbridge.example]; then wait", "[help", ".example];"),
+                ("\u201cgrade-portal.test\u201d is fake", "\u201cgrade-portal", ".test\u201d")):
+            markup = str(display.protect_addresses(sentence))
+            labels = LABEL.findall(markup)
+            self.assertEqual((labels[0], labels[-1]), (first, last), sentence)
+            self.assertEqual(self.text_of(markup), sentence)
+
+    def test_punctuation_that_does_not_touch_an_address_is_left_alone(self):
+        sentence = "The page (not secure) is at wifi-northbridge.test now"
+        markup = str(display.protect_addresses(sentence))
+        self.assertTrue(markup.startswith("The page (not secure) is at <span"), markup)
+        self.assertEqual(LABEL.findall(markup), ["wifi-northbridge", ".test"])
 
     def test_host_inside_a_url_is_protected_and_the_rest_is_left(self):
         markup = str(display.protect_addresses("Open https://learn-northbridge.example/login now"))
@@ -140,10 +168,11 @@ class ScenarioMarkupTests(AppTestCase):
         self.assertIn('<span class="host__label">&lt;it-services@</span><wbr>', page)
 
     def test_address_in_a_message_body_is_protected(self):
-        page = self.item_page("A11")   # the body names dana.lee@student.northbridge.example
+        page = self.item_page("A11")   # the body names (dana.lee@student.northbridge.example)
         self.assertIn(
-            '<span class="host__label">dana.lee@</span><wbr><span class="host">'
+            'Dana Lee <span class="host__label">(dana.lee@</span><wbr><span class="host">'
             '<span class="host__label">student</span>', page)
+        self.assertIn('<span class="host__label">.example)</span></span> shared a folder', page)
 
     def test_no_scenario_shows_an_address_that_could_break_inside_a_label(self):
         addresses = re.compile(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+|[a-z]+://[\w-]+(?:\.[\w-]+)+")

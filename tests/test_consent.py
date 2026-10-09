@@ -48,6 +48,31 @@ class ConsentTests(AppTestCase):
             columns, {"seq", "id", "consent_version", "consented_at", "form_order", "status"}
         )
 
+    def test_second_consent_in_a_live_session_keeps_the_first_record(self):
+        # Found by case IT-06: the second form created a second participant, and
+        # the first record could no longer be continued or withdrawn.
+        participant_id = self.consent()
+        self.answer_pattern("/assessment/pre", [True] * 2)
+        response = self.client.post(
+            "/consent", data={"adult": "yes", "agree": "yes", "csrf_token": self.token()})
+        self.assertEqual(response.status_code, 302)
+        self.assertTrue(response.headers["Location"].endswith("/dashboard"))
+        self.assertEqual(self.count("participant"), 1)
+        with self.client.session_transaction() as session:
+            self.assertEqual(session["participant_id"], participant_id)
+        self.client.post("/withdraw", data={"csrf_token": self.token()})
+        self.assertEqual(self.count("participant"), 0)      # and it can still be withdrawn
+
+    def test_consent_after_finishing_starts_a_new_record(self):
+        self.complete_session(6, 9, SUS)
+        client = self.app.test_client()
+        self.reach_posttest(client)
+        self.answer_posttest(client=client)
+        client.post("/survey", data=self.survey_data(SUS, client))
+        client.post("/finish", data={"csrf_token": self.token(client)})
+        self.consent(client)                                # the same browser, a new person
+        self.assertEqual(self.count("participant"), 3)
+
     def test_withdrawal_deletes_all_linked_records(self):
         self.complete_session(6, 9, SUS)                 # another participant, who stays
         self.consent()
@@ -103,6 +128,27 @@ class ConsentWordingTests(AppTestCase):
         self.assertIn("Contact the researcher: A. Researcher", page)
         self.assertIn("&lt;researcher@example.edu&gt;", page)   # escaped, never markup
 
+    def test_contact_line_is_at_the_foot_of_every_page(self):
+        # Finding U-2: the line stood on the consent page only, and a participant
+        # cannot open that page again during a session.
+        self.app.config["CONTACT"] = "A. Researcher <researcher@example.edu>"
+        line = ("Questions about this study? Contact the researcher: "
+                "A. Researcher &lt;researcher@example.edu&gt;")     # escaped, never markup
+        visitor = self.app.test_client()
+        self.consent()
+        for client, address in ((self.client, "/dashboard"), (self.client, "/assessment/pre"),
+                                (self.client, "/withdraw"), (self.client, "/no-such-page"),
+                                (visitor, "/consent"), (visitor, "/consent/declined"),
+                                (visitor, "/admin/login")):
+            footer = client.get(address).get_data(as_text=True).split("<footer", 1)[1]
+            self.assertIn(line, footer, address)
+
+    def test_pages_have_no_contact_line_when_none_is_configured(self):
+        self.consent()
+        for address in ("/dashboard", "/assessment/pre", "/no-such-page"):
+            self.assertNotIn("Questions about this study?",
+                             self.client.get(address).get_data(as_text=True), address)
+
     def test_missing_confirmation_shows_the_same_information_again(self):
         response = self.client.post("/consent", data={"adult": "yes", "csrf_token": self.token()})
         self.assertEqual(response.status_code, 400)
@@ -142,6 +188,87 @@ class SessionLimitTests(AppTestCase):
         self.consent()
         self.assertEqual(self.request_at(90 * 60).status_code, 200)    # 1.5 hours in
         self.assertEqual(self.request_at(180 * 60).status_code, 200)   # 1.5 hours after that
+
+
+class EndedSessionTests(AppTestCase):
+    """A participant whose session has ended is told so, and why (finding U-1).
+
+    Before, a link led to the consent page without a word, and a form was
+    answered with "Your security token is missing or has expired".
+    """
+
+    NOTICE = 'role="status"'
+
+    def test_a_step_opened_without_a_session_leads_to_an_explanation(self):
+        response = self.client.get("/practice")
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.headers["Location"], "/consent?ended=1")
+        page = self.client.get("/consent?ended=1").get_data(as_text=True)
+        self.assertIn(self.NOTICE, page)
+        self.assertIn("No session is open in this browser.", page)
+        self.assertIn("your session has ended", page)
+        self.assertIn("after 2 hours without activity", page)
+        self.assertIn("Before you begin", page)              # the consent form follows
+
+    def test_the_explanation_states_the_configured_limit(self):
+        self.app.permanent_session_lifetime = 3 * 3600
+        page = self.client.get("/consent?ended=1").get_data(as_text=True)
+        self.assertIn("after 3 hours without activity", page)
+
+    def test_a_first_visit_shows_no_such_notice(self):
+        for address in ("/consent", "/consent?ended=0", "/consent?ended=yes"):
+            self.assertNotIn(self.NOTICE, self.client.get(address).get_data(as_text=True))
+        start = self.client.get("/")
+        self.assertEqual(start.headers["Location"], "/consent")
+
+    def test_a_participant_in_a_session_is_not_shown_the_notice(self):
+        self.consent()
+        response = self.client.get("/consent?ended=1")
+        self.assertEqual(response.status_code, 302)
+        self.assertTrue(response.headers["Location"].endswith("/dashboard"))
+
+    def test_an_answer_sent_after_the_session_ended_is_explained(self):
+        self.consent()
+        self.answer_pattern("/assessment/pre", [True] * 3)
+        token = self.token()
+        self.client.delete_cookie("session")     # what the browser does when the cookie expires
+        response = self.client.post("/assessment/pre", data={
+            "scenario_id": "A01", "answer": "phishing", "csrf_token": token})
+        self.assertEqual(response.status_code, 400)
+        page = response.get_data(as_text=True)
+        self.assertIn("<h1>Your session has ended</h1>", page)
+        self.assertIn("so nothing was stored or changed", page)
+        self.assertIn("A session closes after 2 hours without activity", page)
+        self.assertNotIn("security token", page)
+        self.assertEqual(page.split("<main", 1)[1].count('class="btn'), 1)   # one way on
+        self.assertEqual(self.count("response"), 3)
+
+    def test_every_form_of_a_running_session_gives_that_explanation(self):
+        for address in ("/assessment/pre", "/assessment/post", "/practice", "/survey",
+                        "/withdraw", "/finish", "/admin/logout"):
+            response = self.client.post(address, data={"csrf_token": "anything"})
+            self.assertEqual(response.status_code, 400, address)
+            self.assertIn(b"Your session has ended", response.data, address)
+
+    def test_the_two_forms_that_start_a_session_ask_for_a_reload_instead(self):
+        # Nothing has started there yet: the page was open too long, or the
+        # browser refused the cookie.
+        for address in ("/consent", "/admin/login"):
+            response = self.client.post(address, data={"csrf_token": "anything"})
+            self.assertEqual(response.status_code, 400, address)
+            page = response.get_data(as_text=True)
+            self.assertIn("Go back, reload the page, and try again.", page, address)
+            self.assertIn("allow cookies for this site", page, address)
+            self.assertNotIn("Your session has ended", page, address)
+        self.assertEqual(self.count("participant"), 0)
+
+    def test_a_wrong_token_in_a_running_session_is_not_called_an_ended_session(self):
+        self.consent()
+        response = self.client.post("/withdraw", data={"csrf_token": "wrong"})
+        self.assertEqual(response.status_code, 400)
+        self.assertIn(b"Your security token is missing or has expired", response.data)
+        self.assertNotIn(b"Your session has ended", response.data)
+        self.assertEqual(self.count("participant"), 1)
 
 
 class FinishTests(AppTestCase):
