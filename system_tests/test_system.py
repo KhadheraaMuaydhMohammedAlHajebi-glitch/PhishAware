@@ -16,6 +16,7 @@ counts before and after an action. They never open the database.
 import base64
 import json
 import re
+import statistics
 import subprocess  # nosec B404 - runs only the tester's own crash command
 import threading
 import time
@@ -449,23 +450,26 @@ class WireTests(SystemCase):
 
         probe = f"probe-{uuid.uuid4().hex[:10]}"
         unknown = [attempt(probe) for _ in range(5)]
-        known = [attempt(config.admin_user) for _ in range(2)]
+        known = [attempt(config.admin_user) for _ in range(3)]
         for reply in unknown + known:
             self.assertEqual(reply.status, 401)
             self.assertIn("The username or password is not correct.", reply.visible)
-        # An unknown name costs the server as much work as a wrong password.
-        slowest_known = max(reply.seconds for reply in known)
-        fastest_unknown = min(reply.seconds for reply in unknown[1:])
-        self.assertGreater(fastest_unknown, 0.4 * slowest_known)
+        # An unknown name costs the server as much work as a wrong password. Without
+        # that, an unknown name would be answered about a hundred times sooner. The
+        # medians are compared: on a shared machine a single reply can take twice as
+        # long as the others, which says nothing about the application.
+        typical_known = statistics.median(reply.seconds for reply in known)
+        typical_unknown = statistics.median(reply.seconds for reply in unknown[1:])
+        self.assertGreater(typical_unknown, 0.4 * typical_known)
         # The sixth attempt on the probed name is refused; other names are not affected.
         blocked = attempt(probe, password=config.admin_password or "x")
         self.assertEqual(blocked.status, 429)
         self.assertIn("Too many failed sign-in attempts", blocked.visible)
         fresh = Administrator()
-        self.assertEqual(fresh.sign_in().path, "/admin")      # which also clears its two failures
+        self.assertEqual(fresh.sign_in().path, "/admin")      # which also clears its three failures
         fresh.client.close()
-        self.note = (f"wrong password {slowest_known * 1000:.0f} ms, "
-                     f"unknown name {fastest_unknown * 1000:.0f} ms")
+        self.note = (f"wrong password {typical_known * 1000:.0f} ms, "
+                     f"unknown name {typical_unknown * 1000:.0f} ms (medians)")
 
     def test_15_the_health_endpoint_reports_the_release_and_nothing_else(self):
         """ST-15 | NFR-12 | The health endpoint reports status and release, and nothing else"""
