@@ -569,8 +569,9 @@ jobs:
     needs: container
     env:
       PHISHAWARE_VERSION: ci
-      # Ten minutes for a release, three for every other push.
-      SOAK_MINUTES: ${{ (startsWith(github.ref_name, 'release/') || github.ref_name == 'main') && '10' || '3' }}
+      # Ten minutes for a release, three for every other push. For now also ten on
+      # the branch that examines the memory check, to see the whole curve (test fault T-3).
+      SOAK_MINUTES: ${{ (startsWith(github.ref_name, 'release/') || github.ref_name == 'main' || github.ref_name == 'fix/endurance-memory-measure') && '10' || '3' }}
     steps:
       - name: Check out the code
         uses: actions/checkout@v6
@@ -621,6 +622,8 @@ jobs:
             # memory of the processes; "file" and "slab" are caches of the kernel.
             echo "Memory of the web service, in bytes: total $(docker compose exec -T app cat /sys/fs/cgroup/memory.current)"
             docker compose exec -T app grep -E '^(anon|file|slab|sock) ' /sys/fs/cgroup/memory.stat
+            # And which process holds it: the server's first process, or its two workers.
+            docker compose exec -T app python - < scripts/process_memory.py
           } 2>&1 | tee after.log
 
       - name: Publish the measurements
