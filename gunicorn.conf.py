@@ -33,9 +33,10 @@ def pre_fork(_server, _worker):
     gives it a copy of that page. Python's garbage collector writes a mark
     into every object it examines, so a worker's first full collection would
     copy nearly everything it had shared. Objects that are frozen here are
-    never examined again (gc.freeze). With two forked workers on a developer
-    machine, the memory of the three processes settled at 55 MiB with frozen
-    objects and at 66 MiB without.
+    never examined again (gc.freeze). In the endurance test of the pipeline
+    the memory of the web service settled at 66 MiB with this hook (run 61)
+    and reached 81 MiB without it (run 60), where it was still rising in steps
+    after nine minutes.
     """
     gc.collect()
     gc.freeze()
