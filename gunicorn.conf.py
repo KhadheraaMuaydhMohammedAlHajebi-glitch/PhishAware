@@ -4,6 +4,7 @@ Each value that differs between deployments is read from an environment
 variable, so one image is tuned without being rebuilt (see docs/deployment.md).
 """
 
+import gc
 import os
 
 # Inside the container the server listens on every interface so that the reverse
@@ -22,6 +23,23 @@ worker_class = "gthread"
 # schema checks then run a single time, and a failed check stops the start-up
 # instead of leaving workers that restart in a loop.
 preload_app = True
+
+
+def pre_fork(_server, _worker):
+    """Called in the first process just before a worker is forked from it.
+
+    A worker shares the memory of this process, which has loaded the whole
+    application, until it first writes to a page; the operating system then
+    gives it a copy of that page. Python's garbage collector writes a mark
+    into every object it examines, so a worker's first full collection would
+    copy nearly everything it had shared. Objects that are frozen here are
+    never examined again (gc.freeze). With two forked workers on a developer
+    machine, the memory of the three processes settled at 55 MiB with frozen
+    objects and at 66 MiB without.
+    """
+    gc.collect()
+    gc.freeze()
+
 
 timeout = 30             # restart a worker that has been silent this long (seconds)
 graceful_timeout = 30    # time for requests in flight to finish on shutdown
