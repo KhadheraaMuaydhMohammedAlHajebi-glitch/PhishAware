@@ -1,5 +1,5 @@
 # PhishAware production image.
-#   docker build -t phishaware:0.6.0 .
+#   docker build -t phishaware:0.7.0 .
 # The image holds the application code, its content, and pinned dependencies.
 # Secrets and data are supplied when it runs: environment variables and /data.
 FROM python:3.13-slim
