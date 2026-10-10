@@ -16,9 +16,8 @@ from unittest import mock
 from werkzeug.security import generate_password_hash
 
 from src import db
-from src.app import create_app
 from src.db import get_db
-from tests.helpers import ADMIN_PASSWORD, ADMIN_USER, AppTestCase
+from tests.helpers import ADMIN_PASSWORD, ADMIN_USER, AppTestCase, restart_app, start_app
 
 FIXTURES = Path(__file__).with_name("fixtures")
 EARLY_HASH = generate_password_hash(ADMIN_PASSWORD, method="scrypt:1024:8:1")
@@ -28,7 +27,7 @@ ADMIN_COLUMNS = ["id", "username", "password_hash", "session_stamp"]
 class DatabaseTests(AppTestCase):
     def test_existing_database_survives_an_application_restart(self):
         self.consent()
-        restarted = create_app({
+        restarted = restart_app({
             "TESTING": True,
             "DATABASE": self.app.config["DATABASE"],
             "SECRET_KEY": "test-secret-key",
@@ -71,7 +70,7 @@ class UpgradeTests(AppTestCase):
         return path
 
     def open_with_this_release(self, path):
-        self.app = create_app({
+        self.app = restart_app({
             "TESTING": True, "DATABASE": path, "SECRET_KEY": "test-secret-key",
             "ADMIN_PASSWORD_METHOD": "scrypt:1024:8:1"})
         self.client = self.app.test_client()
@@ -197,7 +196,7 @@ class UpgradeTests(AppTestCase):
 
         def start():
             try:
-                create_app({"TESTING": True, "DATABASE": path, "SECRET_KEY": "test-secret-key"})
+                start_app({"TESTING": True, "DATABASE": path, "SECRET_KEY": "test-secret-key"})
             except Exception as error:      # reported by the assertion below
                 failures.append(repr(error))
 
