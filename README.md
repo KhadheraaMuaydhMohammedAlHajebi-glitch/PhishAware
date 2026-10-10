@@ -3,7 +3,7 @@
 An interactive web application that helps university students recognize phishing emails and websites through fictional scenarios and immediate, cue-by-cue feedback.
 MSIT 5910 Capstone Project, University of the People.
 
-**Release 0.6.0 (Unit 6: integration, evaluation, and deployment)**
+**Release 0.7.0 (Unit 7: system testing and maintenance planning)**
 
 ## What works in this release
 
@@ -18,14 +18,17 @@ MSIT 5910 Capstone Project, University of the People.
 | M7 Admin Reporting | Password-protected dashboard with aggregate results (from five completed participants) and a de-identified CSV export | FR-11 |
 | M8 Security & Data Protection | Anti-forgery tokens, allowlist validation, parameterized SQL, strict content security policy, hardened cookies, logs without IP addresses, a retention job, and encrypted backups | NFR-05, NFR-08 to NFR-12 |
 
-All eleven functional requirements are implemented. The pilot with participants is the next step and needs approval first; no participant data has been collected yet.
+All eleven functional requirements are implemented, and release 0.7.0 is tested at four levels: 320 unit, component, and integration tests, 18 system cases, and 18 acceptance cases in three browser engines. Testing found and corrected seven defects, one of them critical: release 0.6.0 could lose stored answers when two server processes wrote at the same moment, so it must not be used for a pilot ([`docs/test-report.md`](docs/test-report.md)). The pilot with participants is the next step and needs approval first; no participant data has been collected yet.
 
 ## Documents
 
 | Document | Content |
 |---|---|
 | [`docs/deployment.md`](docs/deployment.md) | Prerequisites, settings, install and start commands, operation, upgrade, rollback |
-| [`docs/evaluation.md`](docs/evaluation.md) | How the system was measured, and the results: latency, throughput, accuracy, memory, accessibility, and the usability inspection |
+| [`docs/test-plan.md`](docs/test-plan.md) | What is tested at which level: 15 integration cases, 18 system cases with seven procedures, and 18 acceptance cases, each with the requirement it verifies |
+| [`docs/test-report.md`](docs/test-report.md) | The test summary report of release 0.7.0: three test cycles, seven defects and how each was resolved, four faults of the tests themselves, and what the tests cannot show |
+| [`docs/maintenance.md`](docs/maintenance.md) | The maintenance plan: what is watched and how often, how a report becomes a release, and the risks after deployment |
+| [`docs/evaluation.md`](docs/evaluation.md) | How release 0.6.0 was measured, and the results: latency, throughput, accuracy, memory, accessibility, and the usability inspection |
 | [`docs/security-checklist.md`](docs/security-checklist.md) | The review against OWASP ASVS 5.0, with the test behind each entry |
 | [`docs/CHANGELOG.md`](docs/CHANGELOG.md), [`docs/releases/`](docs/releases) | Release history and notes |
 
@@ -78,6 +81,15 @@ python evaluation/browser_audit.py --base-url http://127.0.0.1:5000 \
     --admin-user researcher --admin-password "..."
 ```
 
+Run the test levels of `docs/test-plan.md` (section 8 there has every option):
+
+```bash
+python -m system_tests.run --level integration        # the 15 integration cases, no server needed
+python evaluation/contention.py                       # two processes x four threads on one database (needs cc)
+python -m system_tests.run --level acceptance,system --base-url http://127.0.0.1:5000 \
+    --admin-user researcher --admin-password "..."   # the 36 cases against a running instance
+```
+
 ## Project structure
 
 ```
@@ -100,20 +112,27 @@ PhishAware/
     templates/            Jinja2 pages (auto-escaped)
     static/               CSS, JavaScript, favicon (no inline code)
   data/                   scenarios.json and lessons.json (content as data)
-  tests/                  unit, black-box, data-integrity, and security tests
-  evaluation/             loadtest.py (latency, throughput, accuracy) and
-                          browser_audit.py (accessibility, layout, page load)
-  scripts/                inspect_db.py, demo_core_logic.py, ci_summary.py
-  docs/                   deployment, evaluation, security checklist, changelog, release notes
+  tests/                  unit, black-box, data-integrity, and security tests, and the
+                          integration cases (test_integration.py)
+  system_tests/           system and acceptance cases for a running instance, their
+                          harness and runner, and the upgrade rehearsal
+  evaluation/             loadtest.py (latency, throughput, accuracy), soaktest.py
+                          (endurance), contention.py (processes and threads on one
+                          database), browser_audit.py (accessibility, layout, page load)
+  scripts/                inspect_db.py, demo_core_logic.py, ci_summary.py,
+                          process_memory.py, build_common_passwords.py
+  docs/                   deployment, test plan, test report, maintenance plan, evaluation,
+                          security checklist, changelog, release notes
   design/                 Unit 3 design artifacts
-  .github/workflows/      CI: quality gate, container build and smoke test, evaluation
+  .github/workflows/      CI: quality gate, container build and smoke test, evaluation,
+                          system and acceptance tests, endurance test
 ```
 
 ## Git workflow
 
 The repository follows a Git Flow-style model:
 
-- `main` holds only released versions. Every release has a tag that follows Semantic Versioning, for example `v0.4.0`.
+- `main` holds only released versions. Every release has a tag that follows Semantic Versioning, for example `v0.7.0`.
 - `develop` is the integration branch for finished work that has passed the tests.
 - `feature/<module>-<topic>` branches are short-lived and merge into `develop` with `--no-ff`, so each feature keeps a visible merge commit.
 - `fix/<topic>` branches correct defects, and `release/<version>` branches update the version, changelog, and release notes before a release.

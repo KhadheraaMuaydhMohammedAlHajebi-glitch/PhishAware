@@ -31,6 +31,11 @@ class NavigationTests(AppTestCase):
         self.assertIn("After the lessons", page)          # and so is the practice
         self.answer_pattern("/assessment/pre", [True] * 3)
         self.assertIn("3 of 12 answered", self.dashboard())
+        # Finding U-6: the count used to be the fallback text inside the bar, which a
+        # browser that draws the bar does not show. It is now a sentence of its own,
+        # and the bar, which repeats it, is hidden from screen readers.
+        self.assertIn('<progress value="3" max="12" aria-hidden="true"></progress>'
+                      '<p class="step__count">3 of 12 answered</p>', self.dashboard())
         self.answer_pattern("/assessment/pre", [True] * 9)
         page = self.dashboard()
         self.assertIn("Baseline 100.0%", page)

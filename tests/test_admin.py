@@ -6,9 +6,15 @@ fifth failed sign-in, the fifth completed participant, and the 15-minute idle li
 """
 
 import csv
+import hashlib
 import io
+import re
+import subprocess
+import sys
 import time
+from pathlib import Path
 from unittest import mock
+from urllib.parse import urlsplit
 
 from src import repository
 from src.db import get_db
@@ -125,6 +131,35 @@ class AdminAccessTests(AppTestCase):
         self.assertEqual(self.admin_sign_in(password="guess").status_code, 401)
         self.assertEqual(self.admin_sign_in().status_code, 429)   # third failure reached the cap
 
+    def test_a_failed_sign_in_stores_nothing_that_was_typed(self):
+        # Defect D-4, found by case IT-10: the attempted name was stored as typed.
+        # People type a password into the user-name field by mistake, and it then
+        # stood in the database, and in every backup, in the clear.
+        typed = "Tr0ub4dor-typed-into-the-wrong-box"
+        self.assertEqual(self.admin_sign_in(username=typed, password="x").status_code, 401)
+        stored = self.query("SELECT username FROM admin_login_attempt")[0]["username"]
+        self.assertRegex(stored, r"^[0-9a-f]{64}$")
+        database = Path(self.app.config["DATABASE"]).read_bytes().lower()
+        self.assertNotIn(typed.lower().encode(), database)
+        # The limit still recognizes the name: four more failures, then the block.
+        for _ in range(4):
+            self.assertEqual(self.admin_sign_in(username=typed, password="x").status_code, 401)
+        self.assertEqual(self.admin_sign_in(username=typed, password="x").status_code, 429)
+        self.assertEqual(self.admin_sign_in().status_code, 302)     # another name is not blocked
+
+    def test_what_is_stored_cannot_be_tested_against_guesses_without_the_secret_key(self):
+        with self.app.app_context():
+            stored = admin.attempt_key("researcher")
+            self.assertEqual(stored, admin.attempt_key("researcher"))        # the same name again
+            self.assertNotEqual(stored, admin.attempt_key("researcher2"))
+            self.assertNotEqual(stored, hashlib.sha256(b"researcher").hexdigest())
+            self.app.config["SECRET_KEY"] = "the-key-of-another-installation"
+            self.assertNotEqual(stored, admin.attempt_key("researcher"))
+
+    def test_a_name_that_cannot_be_encoded_is_still_counted(self):
+        with self.app.app_context():
+            self.assertRegex(admin.attempt_key("lone surrogate \udc80"), r"^[0-9a-f]{64}$")
+
     def test_no_ip_address_is_stored_with_a_failed_attempt(self):
         self.admin_sign_in(password="guess")
         columns = [row["name"] for row in self.query("PRAGMA table_info(admin_login_attempt)")]
@@ -222,7 +257,7 @@ class AdminAccessTests(AppTestCase):
         self.admin_sign_in()
         response = self.client.get("/dashboard")                       # no participant role
         self.assertEqual(response.status_code, 302)
-        self.assertTrue(response.headers["Location"].endswith("/consent"))
+        self.assertEqual(urlsplit(response.headers["Location"]).path, "/consent")
 
     def test_signing_in_replaces_a_participant_session(self):
         self.consent()
@@ -366,6 +401,61 @@ class CreateAdminCommandTests(AppTestCase):
 
     def test_twelve_character_password_is_accepted(self):
         self.assertEqual(self.create_admin(password="twelve-chars").exit_code, 0)
+
+    def test_commonly_used_password_is_rejected_in_any_capitalisation(self):
+        # Finding S-8 (OWASP ASVS 5.0, requirement 6.2.4); acceptance case AT-17.
+        for password in ("qwertyqwerty", "QwertyQWERTY", "123456789012", "passwordpassword",
+                         "iloveyou1234", "1q2w3e4r5t6y", "administrator"):
+            result = self.create_admin(password=password)
+            self.assertEqual(result.exit_code, 2, password)
+            self.assertIn("commonly used password", result.output)
+            self.assertNotIn(password, result.output)       # the password is never echoed
+        self.assertEqual(self.count("admin_user"), 0)
+
+    def test_commonly_used_password_cannot_replace_a_good_one(self):
+        self.create_admin()
+        self.assertEqual(self.create_admin(password="qwertyqwerty").exit_code, 2)
+        self.assertEqual(self.admin_sign_in().status_code, 302)     # the first password stands
+
+    def test_the_list_meets_the_requirement_it_implements(self):
+        path = Path(self.app.config["COMMON_PASSWORD_FILE"])
+        lines = path.read_text(encoding="ascii").splitlines()
+        digests = [line for line in lines if not line.startswith("#")]
+        self.assertGreaterEqual(len(digests), 3000)      # ASVS 6.2.4: at least the top 3,000
+        self.assertEqual(digests, sorted(set(digests)))  # no entry twice
+        for digest in digests:
+            self.assertRegex(digest, r"^[0-9a-f]{16}$")  # digests only: no password in the file
+        self.assertIn(f"# {len(digests):,} different passwords", "\n".join(lines[:5]))
+
+    def test_without_the_list_no_password_is_accepted(self):
+        self.app.config["COMMON_PASSWORD_FILE"] = str(Path(self._tmp.name) / "missing.sha256")
+        result = self.create_admin()
+        self.assertEqual(result.exit_code, 1)
+        self.assertIn("could not be read", result.output)
+        self.assertIn("the account was not changed", result.output)
+        self.assertEqual(self.count("admin_user"), 0)
+
+    def test_the_build_script_and_the_check_agree_on_the_form_of_an_entry(self):
+        # The script that builds the list is run on two small rankings, and the
+        # application then checks passwords against its output.
+        folder = Path(self._tmp.name)
+        (folder / "first.txt").write_text(
+            "short\nCorrectHorseBattery\nexactly12chr\n", encoding="utf-8")
+        (folder / "second.txt").write_text(
+            "elevenchars\nmonkeymonkeymonkey\nCORRECTHORSEBATTERY\n", encoding="utf-8")
+        script = Path(self.app.root_path).parent / "scripts" / "build_common_passwords.py"
+        built = subprocess.run(
+            [sys.executable, str(script), str(folder / "first.txt"), str(folder / "second.txt")],
+            capture_output=True, text=True, check=True).stdout
+        self.assertEqual(len(re.findall(r"(?m)^[0-9a-f]{16}$", built)), 3)   # one of them twice
+        self.assertIn("# 3 different passwords", built)
+        (folder / "list.sha256").write_text(built, encoding="ascii")
+        self.app.config["COMMON_PASSWORD_FILE"] = str(folder / "list.sha256")
+        with self.app.app_context():
+            for listed in ("correcthorsebattery", "Exactly12Chr", "MonkeyMonkeyMonkey"):
+                self.assertTrue(admin.is_common_password(listed), listed)
+            for other in ("short", "elevenchars", "correct-horse-battery-staple"):
+                self.assertFalse(admin.is_common_password(other), other)
 
     def test_invalid_usernames_are_rejected(self):
         for username in ("ab", "has space", "a" * 33, "-leading", "semi;colon"):

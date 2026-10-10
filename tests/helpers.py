@@ -3,11 +3,16 @@
 import base64
 import os
 import re
+import sqlite3
 import tempfile
+import threading
 import unittest
+from contextlib import contextmanager
+from unittest import mock
 
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
+from src import db
 from src.app import create_app
 from src.db import get_db
 
@@ -35,12 +40,99 @@ def open_backup(key, blob):
     return AESGCM(base64.urlsafe_b64decode(key)).decrypt(body[:12], body[12:], BACKUP_MARKER)
 
 
+def known_defect(*identifiers):
+    """Mark a case that fails because of a defect that is still open (docs/test-plan.md).
+
+    The case runs as before. Its failure is reported but does not stop the pipeline,
+    so that the later jobs can test the rest of the system. As soon as the case
+    passes, the run fails, so that the marker is removed together with the defect.
+    """
+    def mark(case):
+        case.known_defect = ", ".join(identifiers)
+        return unittest.expectedFailure(case)
+    return mark
+
+
+# The web service keeps its database connections open for as long as its process
+# runs (src/db.py, defect D-7). A test plays the part of that process, so it ends
+# the applications it started: what the end of a process does by itself.
+_started = []
+
+
+def start_app(config):
+    """Create an application for a test and remember it, so that the test can end it."""
+    app = create_app(config)
+    _started.append(app)
+    return app
+
+
+def close_connections():
+    """Close the connections that the started applications kept open between requests."""
+    for app in _started:
+        db.pool_of(app).close_idle()
+
+
+def restart_app(config):
+    """A new application on a database that an earlier one used, as after a restart.
+
+    The earlier process has ended by then, and its connections with it.
+    """
+    close_connections()
+    return start_app(config)
+
+
+def end_apps():
+    """The end of a test: close the kept connections and forget the applications."""
+    close_connections()
+    _started.clear()
+
+
+class ConnectionWatch:
+    """Records the database connections that are opened and closed while it is active."""
+
+    def __init__(self):
+        self.opened = []
+        self.closed = []
+        self._lock = threading.Lock()
+
+    def connect(self, real):
+        """A stand-in for sqlite3.connect that opens real connections and records them."""
+        watch = self
+        classes = {}
+
+        def watched(base):
+            """The connection class the caller asked for, extended to record a close."""
+            if base not in classes:
+                class Watched(base):
+                    def close(self):
+                        with watch._lock:
+                            watch.closed.append(self)
+                        super().close()
+                classes[base] = Watched
+            return classes[base]
+
+        def connect(*args, factory=sqlite3.Connection, **kwargs):
+            connection = real(*args, factory=watched(factory), **kwargs)
+            with watch._lock:
+                watch.opened.append(connection)
+            return connection
+        return connect
+
+
+@contextmanager
+def watch_connections():
+    """Watch every connection that the data tier opens or closes inside the block."""
+    watch = ConnectionWatch()
+    with mock.patch.object(db.sqlite3, "connect", watch.connect(sqlite3.connect)):
+        yield watch
+
+
 class AppTestCase(unittest.TestCase):
     """Creates an isolated app so tests never touch the development database."""
 
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()
-        self.app = create_app({
+        self.app = start_app({
             "TESTING": True,
             "DATABASE": os.path.join(self._tmp.name, "test.db"),
             "SECRET_KEY": "test-secret-key",
@@ -50,6 +142,7 @@ class AppTestCase(unittest.TestCase):
         self.client = self.app.test_client()
 
     def tearDown(self):
+        end_apps()
         self._tmp.cleanup()
 
     def query(self, sql, params=()):

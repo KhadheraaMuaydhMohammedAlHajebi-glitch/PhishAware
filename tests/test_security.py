@@ -1,6 +1,7 @@
 """Security tests for M8 (NFR-08 to NFR-11)."""
 
 import base64
+from unittest import mock
 
 from flask.sessions import SecureCookieSessionInterface
 
@@ -24,6 +25,57 @@ class SecurityTests(AppTestCase):
         response = self.client.post("/consent", data={"adult": "yes", "agree": "yes"})
         self.assertEqual(response.status_code, 400)
         self.assertEqual(self.count("participant"), 0)
+
+    def test_token_outside_ascii_is_refused_like_any_other_wrong_token(self):
+        # Found by case IT-04: such a token ended in an unhandled TypeError (status 500).
+        self.consent()
+        for token in ("t\u00e9st", "\u0631\u0645\u0632", "\U0001F600" * 8):
+            response = self.client.post("/assessment/pre", data={
+                "scenario_id": "A01", "answer": "phishing", "csrf_token": token})
+            self.assertEqual(response.status_code, 400, token)
+            self.assertIn(b"Your security token is missing or has expired", response.data)
+        self.assertEqual(self.count("response"), 0)
+
+    def test_request_larger_than_any_form_is_refused_before_it_is_read(self):
+        # Defect D-6, found by cases ST-12 and IT-12: there was no limit, and the
+        # framework release in use parses a form of any size.
+        self.assertEqual(self.app.config["MAX_CONTENT_LENGTH"], 64 * 1024)
+        self.consent()
+        token = self.token()
+        with mock.patch("werkzeug.formparser.FormDataParser.parse") as parser:
+            response = self.client.post("/assessment/pre", data={
+                "scenario_id": "A01", "answer": "p" * 200_000, "csrf_token": token})
+        parser.assert_not_called()                      # the body was not parsed at all
+        self.assertEqual(response.status_code, 413)
+        page = response.get_data(as_text=True)
+        self.assertIn("<h1>Too much data</h1>", page)
+        self.assertIn("Go to the start page", page)
+        self.assertNotIn("The data value transmitted exceeds the capacity limit", page)
+        self.assertEqual(self.count("response"), 0)
+        self.assertEqual(self.client.get("/assessment/pre").status_code, 200)   # session intact
+
+    def test_the_limit_is_exact_and_ordinary_forms_are_far_below_it(self):
+        self.consent()
+        limit = self.app.config["MAX_CONTENT_LENGTH"]
+        prefix = b"csrf_token=" + self.token().encode() + b"&scenario_id=A01&answer="
+
+        def post(length):
+            body = prefix + b"x" * (length - len(prefix))
+            return self.client.post("/assessment/pre", data=body,
+                                    content_type="application/x-www-form-urlencoded")
+
+        self.assertEqual(post(limit + 1).status_code, 413)
+        self.assertEqual(post(limit).status_code, 400)       # read, and refused as an answer
+        self.assertLess(len(prefix) + len("legitimate"), 300)
+
+    def test_every_form_of_the_application_is_refused_alike_when_it_is_too_large(self):
+        self.create_admin()
+        for address in ("/consent", "/assessment/pre", "/practice", "/assessment/post",
+                        "/survey", "/withdraw", "/finish", "/admin/login", "/admin/logout"):
+            response = self.client.post(address, data={"csrf_token": "t" * 70_000})
+            self.assertEqual(response.status_code, 413, address)
+        self.assertEqual(self.count("participant"), 0)
+        self.assertEqual(self.count("admin_login_attempt"), 0)
 
     def test_injection_style_scenario_id_is_rejected(self):
         self.consent()

@@ -1,12 +1,12 @@
 # Security checklist: OWASP ASVS 5.0
 
-Requirement NFR-12 asks that no critical or high finding is open before the pilot. This document records how release 0.6.0 was checked against the OWASP Application Security Verification Standard, version 5.0.0 (May 2025), and what the check found.
+Requirement NFR-12 asks that no critical or high finding is open before the pilot. This document records how release 0.6.0 was checked against the OWASP Application Security Verification Standard, version 5.0.0 (May 2025), what the check found, and what release 0.7.0 changed (section 7).
 
 ## 1. Scope and method
 
 - **Target.** Every applicable Level 1 requirement, and the Level 2 requirements listed in section 4, chosen because they protect participant data or the administrator account. ASVS describes Level 1 as the first layer of defence and a suitable starting point for an application that holds limited sensitive data; PhishAware stores pseudonymous answers and no direct identifiers.
 - **Method.** Each of the 70 Level 1 requirements was read against the code and classified as met, not applicable, deviation, or open. A requirement counts as met only where an automated test or a CI check demonstrates it, or where the code makes it true by construction (for example, the application has no file upload). The evidence column names the test or check.
-- **Reviewer and date.** The developer, on 8 October 2026.
+- **Reviewer and date.** The developer, on 8 October 2026; brought up to date for release 0.7.0 on 10 October 2026.
 - **Limits.** This is a self-assessment against a checklist. It is not an independent audit and not a penetration test, and a checklist cannot show the absence of flaws it does not ask about.
 
 ## 2. Result
@@ -16,11 +16,11 @@ Requirement NFR-12 asks that no critical or high finding is open before the pilo
 | Level 1 requirements in ASVS 5.0.0 | 70 |
 | Not applicable (no file upload, OAuth, WebSocket, XML, operating-system calls, or generated passwords) | 16 |
 | Applicable | 54 |
-| Met | 52 |
+| Met | 53 (52 in release 0.6.0) |
 | Deviation, accepted with a stated reason (6.2.3) | 1 |
-| Open (6.2.4) | 1 |
+| Open | 0 (6.2.4 was open in release 0.6.0) |
 
-The review found eight requirements that the code did not meet when the review began: six at Level 1 and two at Level 2. Seven were corrected in this release (section 5). One, at Level 1, remains open; it concerns the choice of the single administrator password and is rated low. **No critical or high finding is open.**
+The review found eight requirements that the code did not meet when the review began: six at Level 1 and two at Level 2. Seven were corrected in release 0.6.0 (section 5). The eighth, a check of the administrator's password against commonly used ones, was rated low and corrected in release 0.7.0. **No finding of this review is open.** Section 7 lists three further weaknesses that this review did not find and that testing found.
 
 ## 3. Level 1 requirements
 
@@ -83,7 +83,7 @@ Status: **Met**, **N/A** (not applicable), **Deviation**, or **Open**. "Fixed" m
 | 6.2.1 | Passwords have at least 8 characters | Met | Minimum 12: `test_short_password_is_rejected`, `test_twelve_character_password_is_accepted` |
 | 6.2.2 | The user can change the password | Met | `flask create-admin` replaces it: `test_changing_the_password_signs_out_open_sessions` |
 | 6.2.3 | A change requires the current password | Deviation | A change requires command-line access to the host instead. The account holder is the operator of the host, and host access already gives access to the database |
-| 6.2.4 | Passwords are checked against the 3,000 most common | **Open** | Not implemented. See section 5 |
+| 6.2.4 | Passwords are checked against the 3,000 most common | Met (fixed in 0.7.0) | `flask create-admin` refuses a password on a list of 3,708 commonly used ones of twelve or more characters, in any capitalisation: acceptance case AT-17 and the tests of `tests/test_admin.py` |
 | 6.2.5 | Any composition is allowed | Met | No character rules |
 | 6.2.6 | Password fields mask the entry | Met | `type="password"`; the command line does not echo (`test_password_is_prompted_twice_and_never_echoed`) |
 | 6.2.7 | Paste and password managers work | Met | Standard fields with `autocomplete` values; nothing blocks pasting |
@@ -201,9 +201,9 @@ Five Level 1 requirements (10.4.1 to 10.4.5): **N/A**. The application is not an
 | S-5 | 3.4.3 (L2) | The content security policy lacked `object-src 'none'` and `base-uri 'none'` | Low | Fixed |
 | S-6 | 11.4.2 (L2) | Password hashing used a library default that is cheaper than current guidance | Low | Fixed |
 | S-7 | 14.3.1 (L1) | Nothing told the browser to clear its data when a session ended. Pages were already never cached | Low | Fixed: `Clear-Site-Data` |
-| S-8 | 6.2.4 (L1) | A new administrator password is not compared with a list of common passwords | Low | **Open** |
+| S-8 | 6.2.4 (L1) | A new administrator password was not compared with a list of common passwords | Low | Fixed in release 0.7.0 |
 
-**Why S-8 is rated low and left open.** The system has one administrator account, created by the operator on the command line. The password must have at least 12 characters, is stored with scrypt, and sign-in is limited to five failed attempts per account in 15 minutes. The account gives access to aggregate statistics and a de-identified export, never to individual records. The remaining risk is that the operator chooses a common 12-character password; the deployment guide asks for a generated passphrase. The check is planned for the next release.
+**Why S-8 was rated low.** The system has one administrator account, created by the operator on the command line. The password must have at least 12 characters, is stored with scrypt, and sign-in is limited to five failed attempts per account in 15 minutes. The account gives access to aggregate statistics and a de-identified export, never to individual records. The remaining risk was that the operator chooses a common 12-character password. Release 0.7.0 closes it: the command refuses such a password and changes nothing.
 
 Severity follows the usual four steps (critical, high, medium, low), judged by what an attacker would gain and what they would need first. S-1 needed a copy of a victim's cookie and gave access to one participant's results, or to the aggregate dashboard, for at most two hours.
 
@@ -221,7 +221,8 @@ All validation runs on the server, before any database access.
 | Consent | Both check boxes must be present with the value `yes` |
 | Anti-forgery token | Required on every POST; compared in constant time |
 | Administrator user name | 3 to 32 characters: lowercase letters, digits, dot, underscore, hyphen |
-| Administrator password | At least 12 characters; any characters |
+| Administrator password | At least 12 characters; any characters; not on the list of commonly used passwords |
+| Any request | A body of at most 64 kB; a larger one is refused with status 413 before it is read |
 | Settings | Checked when the application starts (see `docs/deployment.md`, section 4) |
 
 Participants type no free text anywhere in the application.
@@ -255,3 +256,17 @@ No role can read another participant's records: the application has no page and 
 | Low, or the affected code is not used | The next release |
 
 Without an advisory, dependencies are reviewed at the start of each release.
+
+## 7. Release 0.7.0: what testing found that this review had not
+
+The review of section 3 asks, requirement by requirement, whether a control exists and whether a test shows it. Integration and system testing for release 0.7.0 sent hostile input to every form and looked at what the database holds afterwards. They found three weaknesses in controls that the review had counted as met. Each is corrected, with a regression test (`docs/test-report.md`, section 6).
+
+| Defect | Chapter of the standard | What was wrong in release 0.6.0 | Severity | Status |
+|---|---|---|---|---|
+| D-1 | V2 Validation; V16 Error handling | A form whose anti-forgery token held a character outside ASCII was answered with status 500. The check existed and refused every wrong token that was ASCII | Medium | Fixed: such a token is refused with status 400 |
+| D-4 | V14 Data protection (and NFR-11) | A failed sign-in was recorded with the user name as typed, which can be a password typed into the wrong field, and the record stayed until the next sign-in | Low | Fixed: a keyed digest is stored, and the daily pass removes old records |
+| D-6 | V2 Validation | A request body had no size limit since Werkzeug 3.1.9, so one request could occupy 150 MiB of memory | Medium | Fixed: 64 kB, refused before the body is read |
+
+Defect D-7, the loss of stored answers when two processes wrote at the same moment, is a defect of integrity and availability and no weakness that an attacker could use better than chance; the test report describes it.
+
+The lesson for this document is its own first limit: a checklist cannot show the absence of flaws it does not ask about. A requirement that is "met" by a passing test is met for the inputs of that test.

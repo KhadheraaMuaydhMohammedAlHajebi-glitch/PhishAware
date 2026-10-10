@@ -252,10 +252,14 @@ def token_and_item(html, bank):
     return token.group(1), bank[scenario.group(1)]
 
 
-def run_journey(index, args, bank, stats, oracle):
-    """One participant's journey, with every reported figure checked against the oracle."""
+def run_journey(index, args, bank, stats, oracle, browser=None):
+    """One participant's journey, with every reported figure checked against the oracle.
+
+    The journey uses its own HTTP client. contention.py passes a browser that
+    calls the application without a network in between.
+    """
     plan = make_plan(args.seed, index)
-    browser = Browser(args.base_url, stats, cafile=args.cacert)
+    browser = browser or Browser(args.base_url, stats, cafile=args.cacert)
     correct = {"pre": dict.fromkeys(CUES, 0), "post": dict.fromkeys(CUES, 0)}
     forms = {}
 
@@ -392,10 +396,14 @@ def summarise(values):
     }
 
 
-def check_administrator_view(args, oracle):
-    """Compare the dashboard counts and the export with what the journeys must produce."""
+def check_administrator_view(args, oracle, browser_for=None):
+    """Compare the dashboard counts and the export with what the journeys must produce.
+
+    browser_for(stats) returns the browser to use; by default an HTTP client.
+    """
     stats = Stats()
-    browser = Browser(args.base_url, stats, cafile=args.cacert)
+    browser = (browser_for(stats) if browser_for
+               else Browser(args.base_url, stats, cafile=args.cacert))
     try:
         html = browser.page("/admin/login")
         html = browser.submit("/admin/login", {

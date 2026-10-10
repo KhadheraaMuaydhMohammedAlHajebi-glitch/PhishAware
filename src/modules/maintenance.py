@@ -12,7 +12,9 @@ delete or copy data. In the container deployment a second service runs
 does not depend on a scheduler that somebody has to remember to configure.
 
 A backup is a consistent snapshot taken through SQLite's online backup API, so it
-is safe while participants are using the system. The snapshot is serialized in
+is safe while participants are using the system. The snapshot is checked before
+it is kept: a damaged database is not backed up, and the pass fails, which the
+health check of the jobs service reports. The snapshot is serialized in
 memory and encrypted with AES-256 in Galois/Counter Mode before anything is
 written, so the backup folder never holds readable data, and a file that was
 altered or truncated is rejected when it is restored. The key comes from
@@ -53,6 +55,11 @@ UNREADABLE_BACKUP = (
     "The backup could not be decrypted: the key is wrong or the file was altered. "
     "The database was not changed."
 )
+DAMAGED_DATABASE = (
+    "The database is damaged: {problem}. No backup was written, and the earlier backups "
+    "are kept. Stop the web service and restore the newest backup from before the damage "
+    "(docs/deployment.md, section 8)."
+)
 # What can go wrong in a maintenance pass without being a programming error:
 # a locked or damaged database, a full or read-only disk, a missing key.
 JOB_ERRORS = (sqlite3.Error, OSError, click.ClickException)
@@ -65,6 +72,19 @@ REQUIRED_TABLES = {"participant", "scenario", "attempt", "response", "sus_respon
 # Retention (NFR-12) ------------------------------------------------------------
 def utc_now():
     return datetime.now(timezone.utc)
+
+
+def forget_old_sign_in_attempts(now=None):
+    """Delete failed sign-in records that are older than the rate-limit window.
+
+    The sign-in form deletes them as well, but only when somebody uses it. A
+    study can run for weeks without an administrator signing in, and the records
+    of a burst of guesses would stay in the database, and in its backups, for
+    as long. Returns the number of records deleted.
+    """
+    seconds = current_app.config["ADMIN_LOCKOUT_SECONDS"]
+    cutoff = (now or utc_now()) - timedelta(seconds=seconds)
+    return repository.clear_failed_logins(before=cutoff.isoformat(timespec="seconds"))
 
 
 def retention_cutoff(days, now=None):
@@ -134,11 +154,42 @@ def backup_directory():
     return Path(current_app.config["DATABASE"]).parent / "backups"
 
 
+def database_problem(connection):
+    """What SQLite's own checks find wrong with a database, or None when it is sound.
+
+    The integrity check reads every page and compares every index with its
+    table. The foreign-key check finds a record whose parent row is missing.
+    Two writers at the same moment leave both kinds of damage (defect D-7).
+    """
+    finding = connection.execute("PRAGMA integrity_check(1)").fetchone()[0]
+    if finding != "ok":
+        return "integrity check: " + " ".join(finding.split())
+    orphan = connection.execute("PRAGMA foreign_key_check").fetchone()
+    if orphan is not None:
+        return (f"a row of the table {orphan[0]} refers to a row of the table {orphan[2]} "
+                "that does not exist")
+    return None
+
+
 def create_backup(directory, now=None):
-    """Write one encrypted snapshot of the database. Returns its path."""
+    """Write one encrypted snapshot of the database. Returns its path.
+
+    The snapshot is checked first. A backup is written every day and kept for
+    seven, so a week of unnoticed damage would otherwise leave no sound backup.
+    A damaged database is reported instead, and because the pass stops here,
+    the earlier backups do not expire while the damage lasts.
+    """
     snapshot = sqlite3.connect(":memory:")
     try:
-        db.get_db().backup(snapshot)
+        try:
+            db.get_db().backup(snapshot)
+            problem = database_problem(snapshot)
+        except sqlite3.OperationalError:
+            raise       # a busy database or a failing disk says nothing about the records
+        except sqlite3.DatabaseError as error:
+            problem = str(error)    # SQLite could not read the file as a database at all
+        if problem:
+            raise click.ClickException(DAMAGED_DATABASE.format(problem=problem))
         token = encrypt_snapshot(snapshot.serialize())
     finally:
         snapshot.close()
@@ -228,6 +279,10 @@ def describe_expiry(count, days, dry_run=False):
     return f"{verb} {count} backup(s) older than {days} days."
 
 
+def describe_attempts(count, seconds):
+    return f"Deleted {count} failed sign-in record(s) older than {seconds // 60} minutes."
+
+
 def describe_backup(path):
     return f"Encrypted backup written: {path} ({path.stat().st_size} bytes)"
 
@@ -242,6 +297,8 @@ def run_jobs(now=None):
     config = current_app.config
     lines = [describe_purge(
         purge_expired(config["RETENTION_DAYS"], now), config["RETENTION_DAYS"])]
+    lines.append(describe_attempts(
+        forget_old_sign_in_attempts(now), config["ADMIN_LOCKOUT_SECONDS"]))
     if config.get("BACKUP_KEY"):
         lines.append(describe_backup(create_backup(backup_directory(), now)))
     else:
