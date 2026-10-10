@@ -65,6 +65,8 @@ DESKTOP = (1280, 800)
 PHONE = (360, 740)           # the narrowest supported window (NFR-04)
 # How WebKit's console begins its report of a refused style element (see SystemCase.shot).
 STYLE_REFUSED = "Refused to apply a stylesheet"
+# A browser's own report that a request got no answer (Chromium, Firefox); see BrowserUser.reload.
+NETWORK_ERROR = re.compile(r"net::ERR_|NS_ERROR_(NET|CONNECTION|OFFLINE)")
 
 
 class Settings:
@@ -555,6 +557,29 @@ class BrowserUser:
         response = page.goto(self.base_url + path, wait_until="load")
         self._arrived(page)
         return response
+
+    def reload(self, page=None, attempts=5):
+        """Press Reload; press it again if the browser itself reports a network error.
+
+        After the container of the web service has been restarted, a browser on
+        the same host can end its next request with an error of its own
+        (Chromium: net::ERR_NETWORK_CHANGED, because the container rejoined the
+        host's network). The application has given no answer in that case. A
+        person would press Reload again, and so does this method. Every answer
+        of the application, and every other failure, is passed on unchanged.
+        Returns the number of attempts that were needed.
+        """
+        page = page or self.page
+        attempt = 1
+        while True:
+            try:
+                page.reload(wait_until="load")
+                return attempt
+            except Exception as error:   # Playwright is imported only when a browser starts
+                if attempt == attempts or not NETWORK_ERROR.search(str(error)):
+                    raise
+            attempt += 1
+            time.sleep(1)
 
     def follow(self, selector, page=None):
         """Click something that loads a new screen, and wait for that screen."""
