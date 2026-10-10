@@ -24,7 +24,7 @@ This plan says what is tested before release 0.7.0, at which level, with which c
 
 | Level | Question it answers | Technique | Where it runs | Cases |
 |---|---|---|---|---|
-| Unit and component (Unit 5 and 6) | Does each module do its job? | White-box tests of the scoring functions; black-box tests of each route, command, and job | In the Python process, with pytest; CI job 1 on Python 3.11 and 3.13 | 281 tests in `tests/` (233 in release 0.6.0; each correction of this release added its regression tests) |
+| Unit and component (Unit 5 and 6) | Does each module do its job? | White-box tests of the scoring functions; black-box tests of each route, command, and job | In the Python process, with pytest; CI job 1 on Python 3.11 and 3.13 | 320 tests in `tests/` (233 in release 0.6.0; the integration cases and the regression tests of each correction were added in this release) |
 | **Integration** | Do the modules work together? | The real application against a real SQLite file, nothing replaced by a stand-in; every route enumerated from the application's own route table; real threads for concurrency; schema files of earlier releases | In the Python process; CI job 1 | IT-01 to IT-15 in `tests/test_integration.py` |
 | **System** | Does the deployed system work as a whole, also when things go wrong? | Black-box: a real browser and plain HTTPS against the running stack; an independent oracle computes what each scripted participant must see; counts are read from the administrator's dashboard, never from the database | The Compose stack; CI jobs 2 to 5 | ST-01 to ST-18 in `system_tests/test_system.py`; ST-19 to ST-25 are procedures with their own tools |
 | **Acceptance** | Does it do what was required? | One case for each functional requirement in the form given, when, then; one case for each open finding; the operator's commands | The Compose stack, in Chromium, Firefox, and WebKit; CI job 4 | AT-01 to AT-18 in `system_tests/test_acceptance.py` |
@@ -63,7 +63,9 @@ The cases leave scripted records behind. They must never run against the databas
 | Medium | A requirement is met only with a workaround, or the system fails under input that an attacker or an unlucky user can produce |
 | Low | Cosmetic, or unlikely and without effect on results |
 
-**Handling a defect.** It gets a number (D-n) and an entry in the test report. It is corrected on a `fix/` branch together with a test that fails before the correction and passes after it. The branch is merged into `develop` when the pipeline passes, and the cases that had failed are run again (the second test cycle).
+**Handling a defect.** It gets a number (D-n) and an entry in the test report. It is corrected on a `fix/` branch together with a test that fails before the correction and passes after it. The branch is merged into `develop` when the pipeline passes, or when every failure in it has been traced to a recorded cause outside the branch, which the merge commit then names. The cases that had failed are run again (the second test cycle). A defect that is found later starts a further cycle in the same way; D-7 was found after the second cycle and led to a third.
+
+**A case that fails although the application is right.** The test is then at fault. It gets a number of its own (T-n) and an entry in the report, the cause is found before anything is changed, and the correction must keep what the case is for. Repeating a failed job until it passes is not a correction: it hides a fault of the test, and it would have hidden defect D-7.
 
 **A failing case while its defect is open.** An integration case runs in the quality gate, and a failure there stops the pipeline before the stack is built. A case that fails because of a recorded defect is therefore marked with the defect's number (`@known_defect("D-4")`). It still runs and is still reported as failed, but the pipeline goes on, so that the system and acceptance levels can be run in the same cycle. The marker cannot outlive the defect: once the case passes, the run fails until the marker is removed. System and acceptance cases are not marked, because their job is the last one and stops nothing.
 
@@ -114,7 +116,7 @@ Each case names the requirement it verifies. Critical acceptance cases are marke
 | ST-17 | NFR-05 | The web service is killed during a journey; after the automatic restart the same browser continues, and no answer is lost |
 | ST-18 | NFR-05, NFR-12 | Encrypted backups written while five participants answer do not disturb them |
 | ST-19 | NFR-01, NFR-06 | Load test: 455 journeys at 1 to 200 concurrent participants; 95th percentile within 500 ms (answers) and 2,000 ms (pages) at 25; every reported value correct (`evaluation/loadtest.py`) |
-| ST-20 | NFR-05 | Endurance test: 25 participants at a human pace for ten minutes; no failed request, no wrong value, no slowdown, no memory growth (`evaluation/soaktest.py`) |
+| ST-20 | NFR-05 | Endurance test: 25 participants at a human pace for ten minutes; no failed request, no wrong value, no slowdown, and memory that stays level once the service is warm (`evaluation/soaktest.py`; three minutes on a branch, where the memory is reported and not judged) |
 | ST-21 | NFR-01, NFR-03, NFR-04 | Browser audit: axe-core and scripted WCAG checks on 21 screens at five widths, a keyboard-only journey, page load on a slow connection, the journey in three engines (`evaluation/browser_audit.py`) |
 | ST-22 | NFR-08, NFR-12 | Deployment checks: the image holds only the pinned packages, refuses to start without a key, serves TLS 1.2 and 1.3 only, and runs unprivileged and read-only (CI job 2) |
 | ST-23 | NFR-05 | Restore rehearsal: the newest encrypted backup is restored on the running stack, and the outage is measured (CI job 2) |

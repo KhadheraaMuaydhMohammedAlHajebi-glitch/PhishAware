@@ -40,6 +40,8 @@ PhishAware is deployed as one container image, started with Docker Compose on a 
 
 Both PhishAware containers run as an unprivileged user (uid 10001) with a read-only root file system, no Linux capabilities, and `no-new-privileges`. The only place they can write is the `/data` volume.
 
+**Database connections.** Each of the two web processes keeps its connections to the database open for as long as it runs, at most one for each of its four threads, and never closes one while it serves requests. Release 0.6.0 opened and closed a connection for every request, which could cancel another thread's file lock and let two processes write at the same moment (defect D-7, `docs/test-report.md`, section 6.2). The commands of section 7 run as processes of their own and are safe while the service runs. Do not copy or replace the database file by hand while the service runs: back up with `flask backup-db`, and stop the services before a restore (section 8).
+
 ## 3. Prerequisites
 
 | Item | Requirement |
@@ -87,7 +89,7 @@ The consent page states the retention period and the backup period. Set both bef
 # 1. Get the release
 git clone https://github.com/KhadheraaMuaydhMohammedAlHajebi-glitch/PhishAware.git
 cd PhishAware
-git checkout v0.6.0
+git checkout v0.7.0
 
 # 2. Create the settings file and generate the two secrets
 cp .env.example .env
@@ -105,7 +107,7 @@ docker compose up -d --wait
 docker compose exec app flask create-admin --username researcher
 ```
 
-Use a generated passphrase of at least 12 characters for the administrator, for example from a password manager. The application does not yet compare a new password with a list of common passwords (`docs/security-checklist.md`, finding S-8).
+Use a generated passphrase of at least 12 characters for the administrator, for example from a password manager. The command refuses a password that is on its list of commonly used ones, in any capitalisation, and changes nothing in that case.
 
 `docker compose up -d --wait` returns when the application answers its health check and the jobs service has completed its first pass.
 
@@ -113,7 +115,7 @@ Use a generated passphrase of at least 12 characters for the administrator, for 
 
 ```bash
 docker compose ps                                   # app and jobs "healthy", proxy "running"
-curl https://<your-domain>/healthz                  # {"scenarios":30,"status":"ok","version":"0.6.0"}
+curl https://<your-domain>/healthz                  # {"scenarios":30,"status":"ok","version":"0.7.0"}
 curl -I http://<your-domain>/consent                # 308 redirect to HTTPS
 docker compose logs jobs                            # the first maintenance pass and its backup
 ```
@@ -137,11 +139,13 @@ Then open `https://<your-domain>/` in a browser, work through a session, and sig
 
 **The jobs service** runs `flask run-jobs`. On start, and then every `PHISHAWARE_JOB_INTERVAL` seconds, it:
 
-1. deletes every participant whose consent is older than `PHISHAWARE_RETENTION_DAYS`, with all linked records;
-2. writes an encrypted snapshot to `/data/backups` (skipped, with a message, when no backup key is set);
+1. deletes every participant whose consent is older than `PHISHAWARE_RETENTION_DAYS`, with all linked records, and the records of failed sign-ins that are older than 15 minutes;
+2. takes a snapshot of the database, checks it, and writes it encrypted to `/data/backups` (skipped, with a message, when no backup key is set);
 3. deletes backups older than `PHISHAWARE_BACKUP_DAYS`.
 
 The order keeps an expired record out of the new snapshot. A pass that fails is reported in the log and tried again after five minutes. The container is reported as unhealthy when no pass has succeeded within the interval plus fifteen minutes.
+
+**If the log says "The database is damaged".** Step 2 runs SQLite's integrity check and its foreign-key check on the snapshot before it encrypts it. If either finds something, the pass writes no backup and stops there, so step 3 does not run and the earlier backups stay for as long as the damage lasts. The message names what was found. Stop the web service and restore the newest backup from before the damage (section 8); every session since that backup is lost. Then report it as a defect of severity critical (`docs/maintenance.md`): a database does not become damaged in normal operation.
 
 **Logs.** Neither Gunicorn nor Caddy writes an access log, because each line would record a client IP address, which the consent form promises not to collect. Application events (consent recorded, assessment completed, sign-in failed) are logged without identifiers.
 
@@ -164,15 +168,15 @@ The database is replaced only after the snapshot has passed three checks: authen
 
 ```bash
 docker compose exec app flask backup-db          # a snapshot of the current state
-git fetch --tags && git checkout v0.6.1          # the new release
+git fetch --tags && git checkout v0.7.0          # the new release
 docker compose build
 docker compose up -d --wait                      # recreates app and jobs; about ten seconds
 curl https://<your-domain>/healthz               # reports the new version
 ```
 
-On start, the new version adds any table it introduces (`CREATE TABLE IF NOT EXISTS`); existing data is not changed.
+On start, the new version adds any table it introduces and then applies the migration steps that this database has not seen, all in one transaction that leaves the database unchanged if a step fails. The database file records the schema version it has reached (version 2 since release 0.7.0). The pipeline rehearses this procedure from the previous release on every push: upgrade, rollback, and upgrade again, with the statistics compared each time.
 
-**Roll back.** Check out the previous tag, build, and start again. Images are tagged with their version, so the previous image is still on the host. If the newer version has changed data in a way the older one cannot read, restore the snapshot taken before the upgrade.
+**Roll back.** Check out the previous tag, build, and start again. Images are tagged with their version, so the previous image is still on the host. If the newer version has changed data in a way the older one cannot read, restore the snapshot taken before the upgrade. Release 0.6.0 can read a database that 0.7.0 has used, but it has defect D-7: roll back to it only to get out of a failed upgrade, and run no sessions on it.
 
 ```bash
 git checkout v0.6.0
@@ -194,9 +198,9 @@ docker compose down --volumes                                 # removes the cont
 | Activity | How PhishAware does it |
 |---|---|
 | Identification | Everything that defines a deployment is a file under version control: `Dockerfile`, `docker-compose.yml`, `deploy/Caddyfile`, `gunicorn.conf.py`, `requirements*.txt`, `constraints.txt`, `src/schema.sql`, `.env.example`. Secrets and data are deliberately outside: `.env` and the `/data` volume. |
-| Baselines | Each release is a Git tag (`v0.6.0`) and an image with the same version. The tag fixes the code, the content, the settings template, and the version of every dependency. |
-| Change control | Changes arrive on `feature/` or `fix/` branches and merge only when the CI pipeline passes: lint, tests with a coverage threshold, security scans, an image build, a smoke test of the running stack, and the evaluation job. |
+| Baselines | Each release is a Git tag (`v0.7.0`) and an image with the same version. The tag fixes the code, the content, the settings template, and the version of every dependency. |
+| Change control | Changes arrive on `feature/` or `fix/` branches and merge only when the CI pipeline passes: lint, tests with a coverage threshold, the contention test, security scans, an image build, a smoke test of the running stack, the evaluation job, the system and acceptance cases in three browser engines, and the endurance test. |
 | Status accounting | `docs/CHANGELOG.md`, the release notes in `docs/releases/`, and `/healthz`, which reports the version that is running. |
-| Audit | CI compares the packages inside the built image with `constraints.txt`, starts the image without a secret key to confirm that it refuses, and rehearses the restore procedure. |
+| Audit | CI compares the packages inside the built image with `constraints.txt`, starts the image without a secret key to confirm that it refuses, and rehearses the restore, the upgrade, and the rollback. |
 
 Because the same image is promoted from CI to the pilot and only `.env` differs, a setting cannot be changed on the server without leaving a trace in a file, and a deployment can be rebuilt from the tag at any time.
