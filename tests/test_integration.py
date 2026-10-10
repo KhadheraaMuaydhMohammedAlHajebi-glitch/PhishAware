@@ -29,8 +29,8 @@ from flask import url_for
 from werkzeug.security import generate_password_hash
 
 from src import db, repository
-from src.app import create_app
-from tests.helpers import ADMIN_PASSWORD, ADMIN_USER, AppTestCase, new_backup_key
+from tests.helpers import (
+    ADMIN_PASSWORD, ADMIN_USER, AppTestCase, new_backup_key, restart_app, watch_connections)
 
 FIXTURES = Path(__file__).with_name("fixtures")
 TAGS = re.compile(r"<[^>]+>")
@@ -482,6 +482,59 @@ class ConcurrencyTests(IntegrationCase):
             self.assertEqual(row["form_order"], "AB" if row["seq"] % 2 else "BA")
         self.assertEqual(sum(1 for row in rows if row["form_order"] == "AB"), 10)
 
+    def test_15_the_web_service_closes_no_connection_while_it_serves_requests(self):
+        """IT-15 | NFR-05 | The web service closes no database connection while it serves"""
+        # Closing a connection in one thread can cancel the file lock that another
+        # thread of the process has just taken (defect D-7, src/db.py). Eight
+        # people answer their pre-assessment at the same moment, as the eight
+        # threads of the deployed service would serve them.
+        labels = {row["id"]: row["label"] for row in self.query("SELECT id, label FROM scenario")}
+        browsers = [self.app.test_client() for _ in range(8)]
+        tokens = [self.token(browser) for browser in browsers]
+
+        def session(index):
+            browser = browsers[index]
+            statuses = [browser.post("/consent", data={
+                "adult": "yes", "agree": "yes", "csrf_token": tokens[index]}).status_code]
+            token = self.token(browser)     # consent starts a new session, with a new token
+            for _ in range(12):
+                item = self.scenario_id_from(browser.get("/assessment/pre").get_data(as_text=True))
+                statuses.append(browser.post("/assessment/pre", data={
+                    "scenario_id": item, "answer": labels[item],
+                    "csrf_token": token}).status_code)
+            return statuses + [browser.get("/dashboard").status_code]
+
+        with watch_connections() as watch:
+            replies = self.together(8, session)
+            self.assertEqual(replies, [[302] * 13 + [200]] * 8)
+            self.assertEqual(watch.closed, [])
+            # One connection for each request in progress at the same moment, at most.
+            self.assertLessEqual(len(watch.opened), 8)
+            in_service = len(watch.opened)
+
+            # The jobs run in a process of their own. Each command there opens one
+            # connection and closes it; the connections of the web service stay.
+            key = new_backup_key()
+            self.app.config["BACKUP_KEY"] = key
+            for command in (["purge-expired"], ["backup-db"], ["analytics"]):
+                result = self.app.test_cli_runner().invoke(args=command)
+                self.assertEqual(result.exit_code, 0, result.output)
+            by_commands = watch.opened[in_service:]   # the backup also opens one in memory
+            self.assertGreaterEqual(len(by_commands), 3)
+            self.assertCountEqual(watch.closed, by_commands)
+            self.assertEqual(db.pool_of(self.app).idle, in_service)
+
+            # The next requests are served by the connections that were kept.
+            self.assertEqual([browser.get("/dashboard").status_code for browser in browsers],
+                             [200] * 8)
+            self.assertEqual(len(watch.opened), in_service + len(by_commands))
+            self.assertCountEqual(watch.closed, by_commands)
+
+        attempts = self.query("SELECT phase, score FROM attempt")
+        self.assertEqual([(row["phase"], row["score"]) for row in attempts], [("pre", 100.0)] * 8)
+        self.assertEqual(self.count("response"), 96)
+        self.assertEqual(self.query("PRAGMA integrity_check")[0][0], "ok")
+
 
 class DataProtectionJobTests(IntegrationCase):
     """The jobs of M8 acting on records that open sessions are using."""
@@ -697,7 +750,7 @@ class UpgradeTests(IntegrationCase):
         return path
 
     def start_this_release_on(self, path):
-        self.app = create_app({
+        self.app = restart_app({
             "TESTING": True, "DATABASE": path, "SECRET_KEY": "test-secret-key",
             "ADMIN_PASSWORD_METHOD": "scrypt:1024:8:1"})
         self.client = self.app.test_client()

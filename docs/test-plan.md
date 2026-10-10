@@ -25,8 +25,8 @@ This plan says what is tested before release 0.7.0, at which level, with which c
 | Level | Question it answers | Technique | Where it runs | Cases |
 |---|---|---|---|---|
 | Unit and component (Unit 5 and 6) | Does each module do its job? | White-box tests of the scoring functions; black-box tests of each route, command, and job | In the Python process, with pytest; CI job 1 on Python 3.11 and 3.13 | 281 tests in `tests/` (233 in release 0.6.0; each correction of this release added its regression tests) |
-| **Integration** | Do the modules work together? | The real application against a real SQLite file, nothing replaced by a stand-in; every route enumerated from the application's own route table; real threads for concurrency; schema files of earlier releases | In the Python process; CI job 1 | IT-01 to IT-14 in `tests/test_integration.py` |
-| **System** | Does the deployed system work as a whole, also when things go wrong? | Black-box: a real browser and plain HTTPS against the running stack; an independent oracle computes what each scripted participant must see; counts are read from the administrator's dashboard, never from the database | The Compose stack; CI jobs 2 to 5 | ST-01 to ST-18 in `system_tests/test_system.py`; ST-19 to ST-24 are procedures with their own tools |
+| **Integration** | Do the modules work together? | The real application against a real SQLite file, nothing replaced by a stand-in; every route enumerated from the application's own route table; real threads for concurrency; schema files of earlier releases | In the Python process; CI job 1 | IT-01 to IT-15 in `tests/test_integration.py` |
+| **System** | Does the deployed system work as a whole, also when things go wrong? | Black-box: a real browser and plain HTTPS against the running stack; an independent oracle computes what each scripted participant must see; counts are read from the administrator's dashboard, never from the database | The Compose stack; CI jobs 2 to 5 | ST-01 to ST-18 in `system_tests/test_system.py`; ST-19 to ST-25 are procedures with their own tools |
 | **Acceptance** | Does it do what was required? | One case for each functional requirement in the form given, when, then; one case for each open finding; the operator's commands | The Compose stack, in Chromium, Firefox, and WebKit; CI job 4 | AT-01 to AT-18 in `system_tests/test_acceptance.py` |
 | Regression | Did a change break something that worked? | Every level above runs again on every push | CI, all five jobs | all of the above |
 
@@ -89,6 +89,7 @@ Each case names the requirement it verifies. Critical acceptance cases are marke
 | IT-12 | NFR-02, NFR-09 | Six kinds of error (400, 403, 404, 405, 413, 500) are answered by the application's own page, never in the framework's words |
 | IT-13 | NFR-05, NFR-07 | A database with the schema of release 0.5.1 serves a returning participant and a new administrator after the upgrade |
 | IT-14 | NFR-05, NFR-07 | A database with the schema of release 0.6.0 keeps its records and its administrator account after the upgrade |
+| IT-15 | NFR-05 | While eight participants answer at the same moment, the web service opens at most eight database connections and closes none; the commands of the jobs service open and close their own; all 96 answers are stored (added in the third cycle, for defect D-7) |
 
 ### 6.2 System (against the running stack)
 
@@ -118,6 +119,7 @@ Each case names the requirement it verifies. Critical acceptance cases are marke
 | ST-22 | NFR-08, NFR-12 | Deployment checks: the image holds only the pinned packages, refuses to start without a key, serves TLS 1.2 and 1.3 only, and runs unprivileged and read-only (CI job 2) |
 | ST-23 | NFR-05 | Restore rehearsal: the newest encrypted backup is restored on the running stack, and the outage is measured (CI job 2) |
 | ST-24 | NFR-05, NFR-07 | Upgrade rehearsal: from the previous release to this build, back, and forward again; statistics unchanged each time (`system_tests/upgrade_rehearsal.sh`) |
+| ST-25 | NFR-05 | Contention test: two processes with four threads each, as deployed, take 200 journeys on one database file while `close()` on that file is delayed by 0.3 ms; no server error, every reported value correct, the database sound and complete, no connection closed (`evaluation/contention.py`, CI job 1; added in the third cycle, for defect D-7) |
 
 ### 6.3 Acceptance (against the running stack, in three browser engines)
 
@@ -161,7 +163,7 @@ Each case names the requirement it verifies. Critical acceptance cases are marke
 | NFR-02 Usability | AT-12 to AT-15, IT-12; the usability score itself needs participants |
 | NFR-03 Accessibility | ST-21 |
 | NFR-04 Portability | ST-02, ST-03, ST-21, AT-16; AT-01 to AT-18 in three engines |
-| NFR-05 Reliability | IT-07, IT-09, ST-04 to ST-07, ST-16 to ST-18, ST-20, ST-23, ST-24 |
+| NFR-05 Reliability | IT-07, IT-09, IT-15, ST-04 to ST-07, ST-16 to ST-18, ST-20, ST-23 to ST-25 |
 | NFR-06 Scalability | ST-16, ST-19 |
 | NFR-07 Maintainability | IT-11, IT-13, IT-14, ST-24 |
 | NFR-08 Transport and cookies | IT-03, ST-09, ST-11, ST-22 |
@@ -196,6 +198,9 @@ python evaluation/soaktest.py --base-url https://localhost --cacert caddy-root.c
     --users 25 --minutes 10 --admin-user evaluator --admin-password "..." \
     --memory-command "docker compose exec -T app cat /sys/fs/cgroup/memory.current"
 bash system_tests/upgrade_rehearsal.sh
+
+# The contention test needs no server: it starts its own processes (and needs a C compiler)
+python evaluation/contention.py
 ```
 
 The acceptance level runs first, on an empty database, because AT-11 can observe the reporting threshold only before five participants have finished. Options that are left out turn the cases that need them into "not run", which the report lists; `--strict` treats that as a failure, and the pipeline uses it.
