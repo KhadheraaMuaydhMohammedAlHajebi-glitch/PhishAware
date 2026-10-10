@@ -352,6 +352,95 @@ class BackupExpiryTests(BackupCase):
         self.assertEqual(self.names(), [])
 
 
+class DamagedDatabaseTests(BackupCase):
+    """A damaged database is reported and not backed up (added after defect D-7)."""
+
+    def setUp(self):
+        super().setUp()
+        self.participant = self.complete_session(6, 9, SUS)
+        self.database = self.app.config["DATABASE"]
+
+    def overwrite_the_first_page_of(self, table):
+        """Fill the start of a table's first page with a value no page begins with."""
+        raw = sqlite3.connect(self.database)
+        try:
+            page_size = raw.execute("PRAGMA page_size").fetchone()[0]
+            root = raw.execute(
+                "SELECT rootpage FROM sqlite_master WHERE name = ?", (table,)).fetchone()[0]
+        finally:
+            raw.close()
+        with open(self.database, "r+b") as handle:
+            handle.seek((root - 1) * page_size)
+            handle.write(b"\xff" * 16)
+
+    def delete_a_parent_row(self):
+        """Remove a participant and leave the attempts: a raw connection checks no keys."""
+        raw = sqlite3.connect(self.database)
+        try:
+            raw.execute("DELETE FROM participant WHERE id = ?", (self.participant,))
+            raw.commit()
+        finally:
+            raw.close()
+
+    def test_a_sound_database_has_no_problem(self):
+        with self.app.app_context():
+            self.assertIsNone(maintenance.database_problem(get_db()))
+
+    def test_a_damaged_page_is_reported_and_no_backup_is_written(self):
+        self.overwrite_the_first_page_of("response")
+        result = self.run_command("backup-db")
+        self.assertEqual(result.exit_code, 1, result.output)
+        self.assertIn("The database is damaged: ", result.output)
+        self.assertIn("No backup was written", result.output)
+        self.assertFalse(self.folder.exists() and self.names())
+
+    def test_a_record_without_its_parent_row_is_reported(self):
+        self.delete_a_parent_row()
+        result = self.run_command("backup-db")
+        self.assertEqual(result.exit_code, 1, result.output)
+        self.assertIn("a row of the table attempt refers to a row of the table participant "
+                      "that does not exist", " ".join(result.output.split()))
+        self.assertFalse(self.folder.exists() and self.names())
+
+    def test_a_file_that_is_no_database_any_more_is_reported(self):
+        with open(self.database, "r+b") as handle:
+            handle.seek(4096)
+            handle.truncate()             # every table is gone; only the first page is left
+        result = self.run_command("backup-db")
+        self.assertEqual(result.exit_code, 1, result.output)
+        self.assertIn("The database is damaged: ", result.output)
+
+    def test_a_busy_database_is_not_called_damaged(self):
+        with mock.patch.object(maintenance, "database_problem",
+                               side_effect=sqlite3.OperationalError("database is locked")):
+            result = self.run_command("run-jobs", "--once")
+        self.assertEqual(result.exit_code, 1)
+        self.assertIn("The maintenance pass failed: database is locked", result.output)
+        self.assertNotIn("damaged", result.output)
+
+    def test_the_pass_fails_keeps_the_earlier_backups_and_records_no_success(self):
+        now = datetime.now(timezone.utc)
+        earlier = self.write_backup(now - timedelta(days=8))    # due to expire in this pass
+        self.delete_a_parent_row()
+        result = self.run_command("run-jobs", "--once")
+        self.assertEqual(result.exit_code, 1, result.output)
+        self.assertIn("The maintenance pass failed: The database is damaged: ", result.output)
+        self.assertEqual(self.names(), [earlier.name])          # kept, and no new one
+        with self.app.app_context():
+            self.assertIsNone(maintenance.last_pass())           # the health check will tell
+        self.assertEqual(self.run_command("jobs-status").exit_code, 1)
+
+    def test_the_earlier_backup_restores_what_the_damage_destroyed(self):
+        earlier = self.backup()
+        self.delete_a_parent_row()
+        self.assertEqual(self.count("participant"), 0)
+        result = self.run_command("restore-db", str(earlier), "--yes")
+        self.assertEqual(result.exit_code, 0, result.output)
+        self.assertEqual(self.count("participant"), 1)
+        with self.app.app_context():
+            self.assertIsNone(maintenance.database_problem(get_db()))
+
+
 class StopLoop(Exception):
     """Raised by the replaced timer to end the otherwise endless job loop."""
 
