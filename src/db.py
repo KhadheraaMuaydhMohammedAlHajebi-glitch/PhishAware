@@ -7,14 +7,23 @@ A database outlives the release that created it. schema.sql creates whatever
 is missing, but CREATE TABLE IF NOT EXISTS leaves an existing table as it is,
 so a change to an existing table needs a migration step (see migrate). The
 database file records the schema version it has reached.
+
+Connections. A web request takes its connection from a pool and gives it back
+when the request ends; the web service never closes a connection while it is
+running (see ConnectionPool for the reason, defect D-7). A command and the
+start-up open a connection of their own and close it when they are done. That
+is safe there, because such a process has a single thread.
 """
 
 import json
+import os
 import sqlite3
+import threading
+import weakref
 from pathlib import Path
 
 import click
-from flask import current_app, g
+from flask import current_app, g, has_request_context
 from flask.cli import with_appcontext
 
 SCHEMA_FILE = Path(__file__).with_name("schema.sql")
@@ -77,10 +86,71 @@ def journal_mode_for(setting, version=sqlite3.sqlite_version_info):
     return setting
 
 
-def get_db():
-    """Return one connection per request, creating it on first use."""
-    if "db" not in g:
-        connection = sqlite3.connect(current_app.config["DATABASE"])
+POOL = "phishaware.connections"   # key of the pool in app.extensions
+
+# How long a statement waits for a lock that another connection holds, before
+# it fails with "database is locked". The sqlite3 module waits 5 seconds unless
+# told otherwise. In the contention test (evaluation/contention.py), where eight
+# threads write without a pause, the longest wait was 2.4 seconds: too close to
+# that limit. A participant is better served by a late answer than by an error
+# page, and 15 seconds is still well inside the web server's limit of 30.
+BUSY_TIMEOUT_SECONDS = 15.0
+
+
+class Connection(sqlite3.Connection):
+    """A connection that can end the statements a request has left unfinished.
+
+    A SELECT that still has rows to give keeps its read lock on the database
+    file for as long as its cursor exists. While a request closed its
+    connection, that ended with the request. On a connection that is kept, a
+    cursor that outlives its request would keep the lock (the traceback of an
+    error can hold one for minutes), and no other process could write. The
+    connection therefore remembers its cursors, and the pool closes them when
+    the request ends.
+    """
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._cursors = weakref.WeakSet()
+
+    def _remember(self, cursor):
+        self._cursors.add(cursor)
+        return cursor
+
+    # execute() and its relatives create their cursor inside the sqlite3 module,
+    # without calling cursor(), so each of them is extended here.
+    def cursor(self, *args, **kwargs):
+        return self._remember(super().cursor(*args, **kwargs))
+
+    def execute(self, *args, **kwargs):
+        return self._remember(super().execute(*args, **kwargs))
+
+    def executemany(self, *args, **kwargs):
+        return self._remember(super().executemany(*args, **kwargs))
+
+    def executescript(self, *args, **kwargs):
+        return self._remember(super().executescript(*args, **kwargs))
+
+    def finish_statements(self):
+        """Close every cursor that is still open; an unfinished SELECT loses its lock."""
+        for cursor in list(self._cursors):
+            cursor.close()
+        self._cursors.clear()
+
+
+def connect(path, abandon=None):
+    """Open a connection to the database file and prepare it for use.
+
+    If the preparation fails, the connection is closed, or handed to `abandon`
+    when that is given. The pool gives its own function: Python would close an
+    abandoned connection when it collects it, and the web service closes none.
+    """
+    # check_same_thread is off because a pooled connection serves one request
+    # at a time, but not always in the same thread. SQLite itself is built
+    # thread-safe; the module's check would only forbid the hand-over.
+    connection = sqlite3.connect(
+        path, timeout=BUSY_TIMEOUT_SECONDS, check_same_thread=False, factory=Connection)
+    try:
         connection.row_factory = sqlite3.Row
         # SQLite disables foreign keys by default; they are needed for the
         # ON DELETE CASCADE that implements withdrawal (FR-10).
@@ -88,14 +158,155 @@ def get_db():
         # Overwrite deleted rows with zeros, so that a withdrawn or expired
         # record does not linger in the file's unused pages (FR-10, NFR-12).
         connection.execute("PRAGMA secure_delete = ON")
-        g.db = connection
+    except sqlite3.Error:
+        if abandon is None:
+            connection.close()
+        else:
+            abandon(connection)
+        raise
+    return connection
+
+
+def file_identity(path):
+    """(device, inode) of the database file, or None while there is no such file."""
+    try:
+        status = os.stat(path)
+    except OSError:
+        return None
+    return status.st_dev, status.st_ino
+
+
+class ConnectionPool:
+    """The database connections of the web service in one process, kept open.
+
+    Why they are kept open (defect D-7). SQLite locks the database file with
+    POSIX advisory locks. Such a lock belongs to the process, not to the
+    descriptor: when a process closes any descriptor of a file, the operating
+    system releases every lock the process holds on that file. SQLite knows
+    this and postpones a close while another connection of the process holds a
+    lock. The check and the close are two steps, however, and another thread
+    can take a lock between them. The close then releases that lock without
+    SQLite or the thread noticing.
+
+    Releases up to 0.6.0 opened a connection for every request and closed it
+    afterwards, in eight threads of two processes. System testing showed the
+    result: a worker lost its write lock in the middle of a transaction, a
+    second worker began to write, and both used the same rollback journal. One
+    commit failed with "disk I/O error" (SQLITE_IOERR_DELETE_NOENT), answers
+    that other participants had already stored were overwritten, and with the
+    close delayed by 0.3 ms the database file was damaged within seconds.
+
+    A web process therefore never closes a connection while it serves requests.
+    A request borrows one, and returns it at its end, after a rollback if it
+    left a transaction open. The pool holds at most as many connections as the
+    process has had requests in progress at the same moment: the number of
+    worker threads.
+    """
+
+    def __init__(self):
+        self._lock = threading.Lock()
+        self._idle = []          # (connection, identity of the file it was opened on)
+        self._kept = []          # never used again, and never closed while the process runs
+        self._owner = os.getpid()
+        self.opened = 0          # connections opened by this process, for diagnosis
+
+    def acquire(self, path):
+        """An idle connection to the file that is at `path` now, or a new one."""
+        identity = file_identity(path)
+        stale = []
+        connection = None
+        with self._lock:
+            if self._owner != os.getpid():
+                # This process is a copy of the one that filled the pool. SQLite
+                # forbids using a connection across fork(), so the copies are
+                # put aside. They are not closed: nothing may be assumed about them.
+                self._kept.extend(entry[0] for entry in self._idle)
+                self._idle, self._owner = [], os.getpid()
+            while self._idle and connection is None:
+                candidate, opened_on = self._idle.pop()
+                if opened_on == identity:
+                    connection = candidate
+                else:
+                    stale.append(candidate)
+        for candidate in stale:
+            # The file was replaced or deleted (reset-db, or an operator's copy).
+            # This connection belongs to the earlier file. Closing it can release
+            # locks on that earlier file only, which nothing should use any more.
+            candidate.close()
+        if connection is None:
+            # The identity was read before the file is opened. Should the file be
+            # replaced in between, this connection counts as stale at its next
+            # use; read afterwards, a stale connection could pass for a current one.
+            connection = connect(path, abandon=self._keep)
+            with self._lock:
+                self.opened += 1
+        return connection, identity
+
+    def _keep(self, connection):
+        """Put a connection aside: it is not used again, and it is not closed."""
+        with self._lock:
+            self._kept.append(connection)
+
+    def release(self, connection, identity):
+        """Take a connection back at the end of a request."""
+        try:
+            connection.finish_statements()
+            if connection.in_transaction:
+                # The request ended between a statement and its commit, for
+                # example with an error. Nothing of it may reach the next request.
+                connection.rollback()
+        except sqlite3.Error:
+            self._keep(connection)
+            return
+        with self._lock:
+            self._idle.append((connection, identity))
+
+    def close_idle(self):
+        """Close the idle connections. Returns how many were closed.
+
+        Only for a process in which no other thread is using the database at
+        that moment: a command, or a test that ends an application.
+        """
+        with self._lock:
+            idle, self._idle = self._idle, []
+        for connection, _identity in idle:
+            connection.close()
+        return len(idle)
+
+    @property
+    def idle(self):
+        with self._lock:
+            return len(self._idle)
+
+
+def pool_of(app):
+    """The connection pool of an application."""
+    return app.extensions[POOL]
+
+
+def get_db():
+    """Return this context's connection, creating or borrowing it on first use."""
+    if "db" not in g:
+        path = current_app.config["DATABASE"]
+        if has_request_context():
+            g.db, g.db_identity = pool_of(current_app).acquire(path)
+        else:
+            g.db = connect(path)
     return g.db
 
 
 def close_db(_error=None):
-    """Close the request's connection (registered as a teardown handler)."""
+    """End the context's use of its connection (registered as a teardown handler).
+
+    A request returns its connection to the pool. A command or the start-up
+    closes the connection it opened.
+    """
     connection = g.pop("db", None)
-    if connection is not None:
+    if connection is None:
+        return
+    if "db_identity" in g:
+        pool_of(current_app).release(connection, g.pop("db_identity"))
+    else:
         connection.close()
 
 
@@ -246,6 +457,7 @@ def init_db_command():
 def reset_db_command():
     """Development only: delete the database file and rebuild it."""
     close_db()
+    pool_of(current_app).close_idle()    # a command is the only user of its process
     database = current_app.config["DATABASE"]
     for suffix in ("", "-wal", "-shm"):  # the write-ahead log lives beside the database
         Path(database + suffix).unlink(missing_ok=True)
@@ -261,6 +473,7 @@ def init_app(app):
     application context by itself, but Flask's test runner does not, so a
     command without the decorator works in a terminal and fails under test.
     """
+    app.extensions[POOL] = ConnectionPool()
     app.teardown_appcontext(close_db)
     app.cli.add_command(init_db_command)
     app.cli.add_command(reset_db_command)

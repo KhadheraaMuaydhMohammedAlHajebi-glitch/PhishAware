@@ -12,10 +12,9 @@ import unittest
 from unittest import mock
 
 from src import __version__, db, repository
-from src.app import create_app
 from src.config import env_flag, env_int
 from src.db import get_db
-from tests.helpers import AppTestCase, new_backup_key
+from tests.helpers import AppTestCase, end_apps, new_backup_key, restart_app, start_app
 
 SUS = [4, 2, 5, 1, 4, 2, 5, 2, 4, 1]
 
@@ -24,11 +23,12 @@ class StartupCheckTests(unittest.TestCase):
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self._tmp.cleanup)
+        self.addCleanup(end_apps)
 
     def start(self, **settings):
         config = {"TESTING": True, "DATABASE": os.path.join(self._tmp.name, "start.db")}
         config.update(settings)
-        return create_app(config)
+        return start_app(config)
 
     def test_production_refuses_to_start_without_a_secret_key(self):
         with self.assertRaises(RuntimeError) as raised:
@@ -113,7 +113,7 @@ class HealthTests(AppTestCase):
 
 class TransportSecurityTests(AppTestCase):
     def https_app(self):
-        return create_app({
+        return start_app({
             "TESTING": True, "SECRET_KEY": "k" * 32, "SESSION_COOKIE_SECURE": True,
             "DATABASE": os.path.join(self._tmp.name, "https.db"),
         })
@@ -157,7 +157,7 @@ class JournalModeTests(AppTestCase):
     def restart(self, **settings):
         config = {"TESTING": True, "DATABASE": self.app.config["DATABASE"], "SECRET_KEY": "k"}
         config.update(settings)
-        return create_app(config)
+        return restart_app(config)
 
     def test_wal_is_trusted_only_on_releases_with_the_fix(self):
         # Boundary values around 3.51.3 and the patch releases 3.44.6 and 3.50.7.
