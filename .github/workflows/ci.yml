@@ -607,7 +607,7 @@ jobs:
           python3 evaluation/soaktest.py --base-url https://localhost --cacert caddy-root.crt \
             --users 25 --minutes "$SOAK_MINUTES" --think-time 1 \
             --admin-user evaluator --admin-password "$EVALUATOR_PASSWORD" \
-            --memory-command "docker compose exec -T app cat /sys/fs/cgroup/memory.current" \
+            --memory-command "docker compose exec -T app cat /sys/fs/cgroup/memory.stat" \
             --markdown "$GITHUB_STEP_SUMMARY" | tee soak.log
 
       - name: State of the stack after the test
@@ -617,6 +617,10 @@ jobs:
             docker compose ps --format 'table {{.Service}}\t{{.Status}}'
             docker compose exec -T app sh -c 'ls -l /data/phishaware.db* | awk "{print \$5, \$9}"'
             docker compose exec -T jobs flask jobs-status
+            # What the web service's memory consists of. The test judges "anon", the
+            # memory of the processes; "file" and "slab" are caches of the kernel.
+            echo "Memory of the web service, in bytes: total $(docker compose exec -T app cat /sys/fs/cgroup/memory.current)"
+            docker compose exec -T app grep -E '^(anon|file|slab|sock) ' /sys/fs/cgroup/memory.stat
           } 2>&1 | tee after.log
 
       - name: Publish the measurements

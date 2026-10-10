@@ -194,7 +194,7 @@ python evaluation/loadtest.py --base-url https://localhost --cacert caddy-root.c
     --levels 1,5,10,25,50,100,200 --min-journeys 25 --admin-user evaluator --admin-password "..."
 python evaluation/soaktest.py --base-url https://localhost --cacert caddy-root.crt \
     --users 25 --minutes 10 --admin-user evaluator --admin-password "..." \
-    --memory-command "docker compose exec -T app cat /sys/fs/cgroup/memory.current"
+    --memory-command "docker compose exec -T app cat /sys/fs/cgroup/memory.stat"
 bash system_tests/upgrade_rehearsal.sh
 ```
 

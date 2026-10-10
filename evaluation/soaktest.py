@@ -2,7 +2,7 @@
 
     python evaluation/soaktest.py --base-url http://127.0.0.1:5000 --users 25 --minutes 10 \\
         --admin-user evaluator --admin-password "$PASSWORD" \\
-        --memory-command "docker compose exec -T app cat /sys/fs/cgroup/memory.current"
+        --memory-command "docker compose exec -T app cat /sys/fs/cgroup/memory.stat"
 
 The load test (loadtest.py) answers "how fast under a burst": every simulated
 participant answers at once, and a level lasts seconds. This test answers a
@@ -19,7 +19,12 @@ times, and the memory of the web service, and then checks four things:
    at most 1.5 times that of the first third (or below 100 ms, where such a
    ratio only measures noise), and the whole run meets the limits of NFR-01.
 4. No leak. The memory of the web service in the last third is at most 1.25
-   times its memory in the first third. Skipped without --memory-command.
+   times its memory in the first third. Skipped without --memory-command. The
+   command prints a number of bytes, or the text of a control group's
+   memory.stat, from which the memory of the processes themselves ("anon") is
+   taken. The group's total (memory.current) is the wrong measure here: it also
+   counts the file cache and the kernel's records of files, which grow with
+   every file the database writes and are given back when memory is needed.
 
 Start from an empty test database so that the dashboard and export checks see
 only this run. Minutes are not weeks: the test shows whether something drifts
@@ -74,12 +79,21 @@ def percentile(values, share):
     return round(ordered[max(1, math.ceil(share * len(ordered) / 100)) - 1], 1)
 
 
+def parse_memory(text):
+    """Bytes in the output of the memory command: memory.stat's "anon", or the first number."""
+    lines = [line.split() for line in text.strip().splitlines()]
+    for words in lines:
+        if len(words) == 2 and words[0] == "anon":
+            return int(words[1])
+    return int(lines[0][0])
+
+
 def read_memory(command):
     """Bytes reported by the memory command, or None when it fails."""
     try:
         result = subprocess.run(  # nosec B603 - the tester's own command, no shell
             shlex.split(command), capture_output=True, text=True, timeout=20)
-        return int(result.stdout.strip().split()[0])
+        return parse_memory(result.stdout)
     except (OSError, ValueError, IndexError, subprocess.SubprocessError):
         return None
 
