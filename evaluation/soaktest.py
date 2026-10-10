@@ -2,7 +2,7 @@
 
     python evaluation/soaktest.py --base-url http://127.0.0.1:5000 --users 25 --minutes 10 \\
         --admin-user evaluator --admin-password "$PASSWORD" \\
-        --memory-command "docker compose exec -T app cat /sys/fs/cgroup/memory.current"
+        --memory-command "docker compose exec -T app cat /sys/fs/cgroup/memory.stat"
 
 The load test (loadtest.py) answers "how fast under a burst": every simulated
 participant answers at once, and a level lasts seconds. This test answers a
@@ -18,8 +18,18 @@ times, and the memory of the web service, and then checks four things:
 3. No slowdown. The 95th percentile of answers in the last third of the run is
    at most 1.5 times that of the first third (or below 100 ms, where such a
    ratio only measures noise), and the whole run meets the limits of NFR-01.
-4. No leak. The memory of the web service in the last third is at most 1.25
-   times its memory in the first third. Skipped without --memory-command.
+4. No leak. Once the service is warm, its memory must stay level: the memory
+   in the last third of the run is at most 1.15 times that in the middle
+   third. The first third is not judged, because memory rises there for a
+   reason that ends. The server loads the application once and forks its
+   workers; a worker shares that memory until it first writes to a page, and
+   each of its threads takes memory of its own as it serves its first
+   requests. In the pipeline and on a developer machine that rise ended after
+   about 18,000 requests. A run that serves fewer than 12,000 requests in its
+   first third has not left the warm-up, and its memory is reported but not
+   judged. Skipped without --memory-command. The command prints a number of
+   bytes, or the text of a control group's memory.stat, from which "anon" is
+   taken: the memory of the processes, without the kernel's file cache.
 
 Start from an empty test database so that the dashboard and export checks see
 only this run. Minutes are not weeks: the test shows whether something drifts
@@ -43,7 +53,8 @@ import loadtest  # noqa: E402  (the journey, the HTTP client, and the oracle are
 
 SLOWDOWN_LIMIT = 1.5     # last third against first third, 95th percentile of answers
 SLOWDOWN_FLOOR_MS = 100  # below this the ratio is not judged
-MEMORY_LIMIT = 1.25      # last third against first third, median of the samples
+MEMORY_LIMIT = 1.15      # last third against middle third, median of the samples
+WARM_UP_REQUESTS = 12_000   # served in the first third before the memory check is judged
 
 
 class TimedStats(loadtest.Stats):
@@ -74,12 +85,21 @@ def percentile(values, share):
     return round(ordered[max(1, math.ceil(share * len(ordered) / 100)) - 1], 1)
 
 
+def parse_memory(text):
+    """Bytes in the output of the memory command: memory.stat's "anon", or the first number."""
+    lines = [line.split() for line in text.strip().splitlines()]
+    for words in lines:
+        if len(words) == 2 and words[0] == "anon":
+            return int(words[1])
+    return int(lines[0][0])
+
+
 def read_memory(command):
     """Bytes reported by the memory command, or None when it fails."""
     try:
         result = subprocess.run(  # nosec B603 - the tester's own command, no shell
             shlex.split(command), capture_output=True, text=True, timeout=20)
-        return int(result.stdout.strip().split()[0])
+        return parse_memory(result.stdout)
     except (OSError, ValueError, IndexError, subprocess.SubprocessError):
         return None
 
@@ -152,17 +172,18 @@ def windows(stats, memory, seconds):
 
 
 def thirds(pairs, seconds):
-    """The values of the first and of the last third of the run."""
+    """The values of the first, the middle, and the last third of the run."""
     first = [value for at, value in pairs if at < seconds / 3]
+    middle = [value for at, value in pairs if seconds / 3 <= at < seconds * 2 / 3]
     last = [value for at, value in pairs if at >= seconds * 2 / 3]
-    return first, last
+    return first, middle, last
 
 
 def judge(args, stats, oracle, memory, begun, seconds, exported):
     """The four checks; each is (name, passed or None when not judged, what was measured)."""
     answers = [(at, ms) for at, category, ms in stats.samples if category == "submit"]
     pages = [ms for _at, category, ms in stats.samples if category == "page"]
-    first, last = thirds(answers, seconds)
+    first, _middle, last = thirds(answers, seconds)
     early, late = percentile(first, 95), percentile(last, 95)
     answer_p95, page_p95 = percentile([ms for _at, ms in answers], 95), percentile(pages, 95)
     checks = [
@@ -190,22 +211,26 @@ def judge(args, stats, oracle, memory, begun, seconds, exported):
         and page_p95 <= args.budget_page_ms,
         f"answers p95 {answer_p95} ms (limit {args.budget_submit_ms:g}), "
         f"pages p95 {page_p95} ms (limit {args.budget_page_ms:g})"))
-    if memory:
-        held_first, held_last = thirds(memory, seconds)
-        if held_first and held_last:
-            before, after = statistics.median(held_first), statistics.median(held_last)
-            checks.append((
-                "No leak: memory of the web service, last third against first third",
-                after <= MEMORY_LIMIT * before,
-                f"{before / 2 ** 20:.1f} MiB, then {after / 2 ** 20:.1f} MiB "
-                f"(ratio {after / before:.2f}, limit {MEMORY_LIMIT})"))
-        else:
-            checks.append(("No leak: memory of the web service", None,
-                           "too few memory samples to compare"))
-    else:
-        checks.append(("No leak: memory of the web service", None,
-                       "not measured (no --memory-command, or it gave no number)"))
+    checks.append(judge_memory(memory, stats.requests, seconds))
     return checks
+
+
+def judge_memory(memory, requests, seconds):
+    """The fourth check: does the memory stay level once the service is warm?"""
+    name = "No leak: memory of the web service, last third against middle third"
+    if not memory:
+        return name, None, "not measured (no --memory-command, or it gave no number)"
+    held = [statistics.median(part) / 2 ** 20 if part else None
+            for part in thirds(memory, seconds)]
+    if None in held:
+        return name, None, "too few memory samples to compare"
+    start, middle, end = held
+    measured = (f"{middle:.1f} MiB, then {end:.1f} MiB (ratio {end / middle:.2f}, limit "
+                f"{MEMORY_LIMIT}); first third {start:.1f} MiB")
+    if requests / 3 < WARM_UP_REQUESTS:
+        return name, None, (measured + f"; still warming up after {requests / 3:,.0f} "
+                            f"requests in the first third (judged from {WARM_UP_REQUESTS:,})")
+    return name, end <= MEMORY_LIMIT * middle, measured
 
 
 def show(value, width, digits=1):
