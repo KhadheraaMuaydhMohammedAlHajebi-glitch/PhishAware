@@ -11,7 +11,7 @@ name: phishaware
 # Both PhishAware services run the same image with the same settings and the
 # same hardening, so the definition is written once.
 x-runtime: &runtime
-  image: phishaware:${PHISHAWARE_VERSION:-0.6.0}
+  image: phishaware:${PHISHAWARE_VERSION:-0.7.0}
   restart: unless-stopped
   init: true                         # forwards the stop signal, so services stop at once
   env_file: .env

@@ -4,6 +4,44 @@ All notable changes to PhishAware are recorded here (Keep a Changelog format).
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-10-10 (Unit 7: system testing and maintenance planning)
+
+### Added
+- Integration cases IT-01 to IT-15 (`tests/test_integration.py`): the modules working together through their real interfaces, with every route taken from the application's own route table, real threads, and databases built from the schema files of earlier releases.
+- System cases ST-01 to ST-18 and acceptance cases AT-01 to AT-18 (`system_tests/`), run against the deployed stack in a real browser, the acceptance level in Chromium, Firefox, and WebKit; a runner that reports each case with its requirement and counts the critical acceptance cases (objective O2).
+- `evaluation/soaktest.py`, an endurance test at a human pace, and `evaluation/contention.py` with `evaluation/slowclose.c`, which runs the deployed arrangement of processes and threads on one database file while `close()` on that file is delayed (NFR-05).
+- CI: a job for the system and acceptance cases with an upgrade and rollback rehearsal from the previous release, a job for the endurance test, the contention test in the quality gate, base images fetched from two mirrors before Docker Hub, a weekly run, and a manual start. The pipeline has five jobs.
+- M8: the daily pass checks the database with SQLite's integrity check and foreign-key check before it writes the backup. A damaged database is reported and not backed up, and the earlier backups are kept (NFR-05, NFR-12).
+- M7: a commonly used password is refused for the administrator account, in any capitalisation (finding S-8, OWASP ASVS 6.2.4, NFR-10).
+- Data tier: migration steps and a schema version recorded in the database file, so a database of an earlier release is upgraded step by step in one transaction (NFR-07).
+- Documents: `docs/test-plan.md`, `docs/test-report.md` (the test summary report), and `docs/maintenance.md` (the maintenance plan).
+- 87 new tests (320 in total); statement coverage of `src/` remains 100% (1,502 statements).
+
+### Changed
+- The web service keeps its database connections open in a pool for each process, and a statement waits 15 seconds for a lock before it fails (see Fixed, D-7).
+- The server freezes the loaded application's objects before it forks its workers, so the workers keep sharing that memory: the web service settled at 66 MiB in a ten-minute test, against 81 MiB before.
+- The researcher's contact line stands at the foot of every page, not only on the consent page (U-2).
+- Each scale of the usability survey stands in one row at every width (U-3).
+- The dashboard says how many items of an interrupted step are answered (U-6).
+- The endurance test judges the memory of the web service's processes once the service is warm, in the ten-minute run of a release.
+
+### Fixed
+- **D-7 (critical).** With two server processes of four threads each, a request could lose its file lock when another thread of its process closed a database connection. Two processes then wrote at the same moment: a request failed with status 500, answers that were already stored could be overwritten, and the database could be damaged. In the pipeline this happened about once in a million requests. The web service no longer closes a connection while it serves requests.
+- D-5 (high for an installation that began with 0.4.0 to 0.5.1): after the upgrade to 0.6.0 such a database could not hold an administrator.
+- D-1 (medium): a form whose anti-forgery token held a character outside ASCII was answered with status 500.
+- D-6 (medium): requests had no size limit since Werkzeug 3.1.9; the limit is now 64 kB.
+- D-2 (low): HTTP errors other than five codes were answered by the framework's own page, and the error page failed when the database was the cause of the error.
+- D-3 (low): a consent form sent in a live session created a second record that nobody could continue or withdraw.
+- D-4 (low): a failed sign-in stored the user name as typed; a keyed digest is stored now, and the daily pass removes old records.
+- U-1: a participant whose session has ended is told so, and why. U-4: the page for an unknown address speaks in the application's words. U-5: a bracket stays on the line of the address it encloses.
+- Four faults of the tests themselves (T-1 to T-4), among them a memory check that measured the server's warm-up and a timing comparison of two extremes. `docs/test-report.md`, section 8.
+
+### Security
+- OWASP ASVS 5.0, Level 1: of the 54 applicable requirements, 53 are met and one is an accepted deviation; none is open. No critical or high finding is open (NFR-12).
+
+### Planned
+- 0.8.0 (Unit 8): the final report and presentation, and the pilot with participants once it is approved.
+
 ## [0.6.0] - 2026-10-09 (Unit 6: integration, evaluation, and deployment)
 
 ### Added
