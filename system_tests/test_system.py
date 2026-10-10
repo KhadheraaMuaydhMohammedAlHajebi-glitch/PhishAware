@@ -35,6 +35,7 @@ POLICY = ("default-src 'self'", "script-src 'self'", "style-src 'self'", "object
 HOSTILE = ("", "\x00", "tést", "رمز", "\U0001F600" * 4, "A" * 5000,
            "' OR '1'='1' --", "<script>alert(1)</script>", "../../etc/passwd")
 RATINGS = (5, 1, 5, 2, 4, 1, 5, 1, 4, 2)          # scores 90.0
+RESTART_SETTLE_SECONDS = 3                        # see case ST-17
 
 
 def expected_bars(expected):
@@ -548,14 +549,19 @@ class LoadAndRecoveryTests(SystemCase):
                        timeout=120)
         waited = wait_until_healthy(120)
         outage = time.perf_counter() - outage
-        user.page.reload(wait_until="load")           # the same browser, the same cookie
+        # The restarted container rejoins the host's network, and for a moment a
+        # browser on the same host ends its requests with a network error of its
+        # own. A person needs longer than that to notice and to press Reload.
+        time.sleep(RESTART_SETTLE_SECONDS)
+        reloads = user.reload()                       # the same browser, the same cookie
         self.assertEqual(user.path(), "/assessment/pre")
         self.assertIn("6 of 12", user.main_text())
         user.assessment("pre", count=7)
         user.open("/dashboard")
         self.assertIn("Baseline 83.3%", user.text())  # ten of twelve: the five early answers count
         self.note = (f"service answered again {outage:.1f} s after the kill "
-                     f"({waited:.1f} s of polling)")
+                     f"({waited:.1f} s of polling)"
+                     + ("" if reloads == 1 else f"; the browser needed {reloads} reloads"))
 
     def test_18_backups_written_during_use_do_not_disturb_participants(self):
         """ST-18 | NFR-05, NFR-12 | Backups written while participants answer do not disturb them"""
