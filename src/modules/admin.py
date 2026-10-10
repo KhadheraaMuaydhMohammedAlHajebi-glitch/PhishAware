@@ -3,9 +3,10 @@
 The researcher signs in to see aggregate pilot results and to download a
 de-identified export. Three rules shape the module:
 
-* Authentication: passwords are stored only as salted scrypt hashes, sign-in is
-  rate-limited without recording IP addresses, and a session ends after 15
-  idle minutes.
+* Authentication: passwords are stored only as salted scrypt hashes, a commonly
+  used password is refused, sign-in is rate-limited without recording IP
+  addresses or anything that was typed, and a session ends after 15 idle
+  minutes.
 * Aggregation: statistics appear only when at least five participants have
   finished both assessments, so a mean can never expose one person's score.
 * De-identification: the export has no random ID and no timestamp, and its rows
@@ -13,6 +14,8 @@ de-identified export. Three rules shape the module:
 """
 
 import csv
+import hashlib
+import hmac
 import io
 import secrets
 from datetime import datetime, timedelta, timezone
@@ -65,6 +68,39 @@ def _decoy_hash():
 def hash_password(password):
     """Salted scrypt hash with the configured cost parameters (NFR-10)."""
     return generate_password_hash(password, method=current_app.config["ADMIN_PASSWORD_METHOD"])
+
+
+@lru_cache(maxsize=2)
+def _common_passwords(path):
+    """The digests in the file of commonly used passwords, read once."""
+    with open(path, encoding="ascii") as handle:
+        lines = (line.strip() for line in handle)
+        return frozenset(line for line in lines if line and not line.startswith("#"))
+
+
+def is_common_password(password):
+    """True when the password, in any capitalisation, is on the list of common ones.
+
+    The list holds the first 16 hex digits of the SHA-256 digest of each password
+    in lower case (scripts/build_common_passwords.py).
+    """
+    digest = hashlib.sha256(password.lower().encode("utf-8", "replace")).hexdigest()[:16]
+    return digest in _common_passwords(current_app.config["COMMON_PASSWORD_FILE"])
+
+
+def attempt_key(username):
+    """What the rate limit stores about a failed sign-in, in place of the name.
+
+    People type a password into the user-name field by mistake. The text itself
+    is therefore never stored: it would stay in the database, and in every
+    backup, in the clear. The rate limit only has to recognize the same name
+    again, and a keyed digest does that. Without the secret key, which is in
+    neither the database nor a backup, the digest cannot be tested against
+    guesses.
+    """
+    secret = current_app.config["SECRET_KEY"].encode("utf-8")
+    message = b"admin-login-attempt:" + username.encode("utf-8", "replace")
+    return hmac.new(secret, message, hashlib.sha256).hexdigest()
 
 
 def _window_start():
@@ -144,22 +180,23 @@ def login_form():
 def login():
     username = request.form.get("username", "").strip().lower()[:64]
     password = request.form.get("password", "")
+    key = attempt_key(username)
     window_start = _window_start()
     repository.clear_failed_logins(before=window_start)
     config = current_app.config
     # Two limits: one per username against guessing a password, and one across all
     # usernames, because every attempt costs a deliberately slow hash check.
-    if (repository.failed_login_count(window_start, username) >= config["ADMIN_MAX_FAILED_LOGINS"]
+    if (repository.failed_login_count(window_start, key) >= config["ADMIN_MAX_FAILED_LOGINS"]
             or repository.failed_login_count(window_start) >= config["ADMIN_MAX_FAILED_TOTAL"]):
         current_app.logger.warning("Administrator sign-in blocked by the rate limit.")
         return _login_page(error=LOCKED_MESSAGE), 429
     account = repository.get_admin(username)
     stored_hash = account["password_hash"] if account is not None else _decoy_hash()
     if not check_password_hash(stored_hash, password) or account is None:
-        repository.record_failed_login(username)
+        repository.record_failed_login(key)
         current_app.logger.warning("Administrator sign-in failed.")
         return _login_page(error=FAILED_MESSAGE), 401
-    repository.clear_failed_logins(username=username)
+    repository.clear_failed_logins(key=key)
     start_admin_session(account)
     current_app.logger.info("Administrator signed in.")
     return redirect(url_for("admin.dashboard"))
@@ -213,6 +250,19 @@ def create_admin_command(username, password):
         raise click.BadParameter(
             f"use at least {MIN_PASSWORD_LENGTH} characters", param_hint="--password"
         )
+    try:
+        common = is_common_password(password)
+    except OSError as error:
+        # Without the list the check cannot be made, and an unchecked password
+        # is not accepted in its place.
+        raise click.ClickException(
+            "The list of commonly used passwords could not be read "
+            f"({current_app.config['COMMON_PASSWORD_FILE']}), so the password was not "
+            "checked and the account was not changed.") from error
+    if common:
+        raise click.BadParameter(
+            "this is a commonly used password, which an attacker would try first; choose "
+            "another, for example four unrelated words", param_hint="--password")
     created = repository.save_admin(username, hash_password(password))
     action = "created" if created else "updated; earlier sessions are signed out"
     click.echo(f"Administrator '{username}' {action}.")

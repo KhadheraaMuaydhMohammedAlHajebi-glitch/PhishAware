@@ -4,6 +4,8 @@ This document reports how release 0.6.0 was measured and what the measurements s
 
 **No participant has used the system yet.** Every figure below comes from scripted sessions or from inspection. The figures describe the software. They say nothing about whether students learn from it; the pilot answers that question (RQ1 to RQ3), and it has not started.
 
+**Correction, 10 October 2026.** This document remains the record of what was measured for release 0.6.0, and its figures are unchanged. One of its conclusions does not hold. Section 2.3 says that no answer was lost under load, and section 4 counts NFR-05 as met. System testing for release 0.7.0 found that release 0.6.0 could lose stored answers and damage its database when two server processes wrote at the same moment (defect D-7). None of the ten measurements below met the fault: in the pipeline it showed itself about once in a million requests, and these measurements made 382,200. Release 0.7.0 corrects it. [`docs/test-report.md`](test-report.md) reports the defect, its cause, the correction, and the measurements of release 0.7.0.
+
 ## 1. Method
 
 | | |
@@ -61,7 +63,7 @@ From 5 participants upward the stack served between 540 and 594 requests per sec
 
 The load test scripts every answer from a fixed seed, so it knows what each score must be. It computes the expected values with its own code, written independently of the application, and compares them with what the system shows. **14,566 of 14,566 reported values matched**: 455 journeys x 15 results-page checks; 455 export rows x 17 values; 5 dashboard counts; 1 row count. The check covers the personal results page (both scores, the gain, and the percentage correct for each cue before and after), the administrator's dashboard, and every value in the de-identified export, including each System Usability Scale score.
 
-The result holds under load: the values were produced while up to 200 journeys ran at once, so no answer was lost, duplicated, or attributed to another participant.
+The result holds under load: the values were produced while up to 200 journeys ran at once, so no answer was lost, duplicated, or attributed to another participant. (In these measurements. See the correction at the top of this document: the release could lose answers, and none of these runs met the fault.)
 
 ### 2.4 Memory and storage
 
@@ -211,7 +213,7 @@ No finding is rated major or catastrophic. The five open findings are planned fo
 | NFR-02 Usability: completion within 30 minutes; SUS of at least 68 | Needs participants. Inspection: five open findings, none above minor | Not yet measured |
 | NFR-03 Accessibility: core WCAG 2.1 AA checks | 0 axe-core violations; 1,915 scripted checks, none failed; keyboard-only journey completed | Met for the automated checks |
 | NFR-04 Portability: current browsers at 360 to 1,920 px | Journey completed in Chromium, Firefox, and WebKit; no layout failure | Met |
-| NFR-05 Reliability: no loss of submitted answers | 14,566 of 14,566 reported values correct under load; restore rehearsed on the running stack | Met |
+| NFR-05 Reliability: no loss of submitted answers | 14,566 of 14,566 reported values correct under load; restore rehearsed on the running stack | Met in these measurements; **not met by release 0.6.0** (defect D-7, corrected in 0.7.0; see the correction at the top) |
 | NFR-06 Scalability: 50 pilot users | 200 concurrent journeys completed, 0 failed requests | Met |
 | NFR-08 to NFR-12 Security, privacy, and compliance | `docs/security-checklist.md`: 52 of 54 applicable ASVS 5.0 Level 1 requirements met, none open above low | Met |
 

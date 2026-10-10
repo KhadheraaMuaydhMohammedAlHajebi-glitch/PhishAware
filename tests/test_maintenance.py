@@ -18,11 +18,13 @@ from unittest import mock
 from cryptography.exceptions import InvalidTag
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
+from src import db
 from src.db import get_db
 from src.modules import maintenance
 from tests.helpers import BACKUP_MARKER, AppTestCase, new_backup_key, open_backup, seal_backup
 
 SUS = [4, 2, 5, 1, 4, 2, 5, 2, 4, 1]
+FIXTURES = Path(__file__).with_name("fixtures")
 NOON = datetime(2026, 10, 8, 12, 0, 0, tzinfo=timezone.utc)
 
 
@@ -197,6 +199,32 @@ class BackupTests(BackupCase):
         self.assertEqual(self.count("admin_user"), 1)
         self.assertEqual(self.admin_sign_in().status_code, 302)   # the restored account works
 
+    def test_snapshot_of_release_0_5_1_is_upgraded_when_it_is_restored(self):
+        # A snapshot holds the schema of the release that wrote it. Restoring one
+        # of release 0.5.1 brought back the administrator table that release
+        # 0.6.0 could not use (defect D-5).
+        older = sqlite3.connect(":memory:")
+        older.executescript((FIXTURES / "schema-0.5.1.sql").read_text(encoding="utf-8"))
+        db.seed_scenarios(older, self.app.config["SCENARIO_FILE"])
+        older.execute(
+            "INSERT INTO participant (id, consent_version, consented_at, form_order) "
+            "VALUES ('6f1f0f5e-3f0b-4c57-9d53-0c1f0a8f2b11', '1.0', "
+            "'2026-09-30T09:00:00+00:00', 'BA')")
+        older.commit()
+        self.folder.mkdir(parents=True)
+        snapshot = self.folder / "phishaware-20260930T120000Z.db.enc"
+        snapshot.write_bytes(seal_backup(self.key, older.serialize()))
+        older.close()
+        self.assertEqual(self.query("PRAGMA user_version")[0][0], 2)     # the live database
+        result = self.run_command("restore-db", str(snapshot), "--yes")
+        self.assertEqual(result.exit_code, 0, result.output)
+        self.assertIn("1 participant record(s)", result.output)
+        self.assertEqual(self.query("PRAGMA user_version")[0][0], 2)     # migrated again
+        self.assertEqual([row["name"] for row in self.query("PRAGMA table_info(admin_user)")],
+                         ["id", "username", "password_hash", "session_stamp"])
+        self.assertEqual(self.create_admin().exit_code, 0)
+        self.assertEqual(self.admin_sign_in().status_code, 302)
+
     def test_restore_asks_for_confirmation(self):
         path = self.backup()
         self.consent()
@@ -324,6 +352,95 @@ class BackupExpiryTests(BackupCase):
         self.assertEqual(self.names(), [])
 
 
+class DamagedDatabaseTests(BackupCase):
+    """A damaged database is reported and not backed up (added after defect D-7)."""
+
+    def setUp(self):
+        super().setUp()
+        self.participant = self.complete_session(6, 9, SUS)
+        self.database = self.app.config["DATABASE"]
+
+    def overwrite_the_first_page_of(self, table):
+        """Fill the start of a table's first page with a value no page begins with."""
+        raw = sqlite3.connect(self.database)
+        try:
+            page_size = raw.execute("PRAGMA page_size").fetchone()[0]
+            root = raw.execute(
+                "SELECT rootpage FROM sqlite_master WHERE name = ?", (table,)).fetchone()[0]
+        finally:
+            raw.close()
+        with open(self.database, "r+b") as handle:
+            handle.seek((root - 1) * page_size)
+            handle.write(b"\xff" * 16)
+
+    def delete_a_parent_row(self):
+        """Remove a participant and leave the attempts: a raw connection checks no keys."""
+        raw = sqlite3.connect(self.database)
+        try:
+            raw.execute("DELETE FROM participant WHERE id = ?", (self.participant,))
+            raw.commit()
+        finally:
+            raw.close()
+
+    def test_a_sound_database_has_no_problem(self):
+        with self.app.app_context():
+            self.assertIsNone(maintenance.database_problem(get_db()))
+
+    def test_a_damaged_page_is_reported_and_no_backup_is_written(self):
+        self.overwrite_the_first_page_of("response")
+        result = self.run_command("backup-db")
+        self.assertEqual(result.exit_code, 1, result.output)
+        self.assertIn("The database is damaged: ", result.output)
+        self.assertIn("No backup was written", result.output)
+        self.assertFalse(self.folder.exists() and self.names())
+
+    def test_a_record_without_its_parent_row_is_reported(self):
+        self.delete_a_parent_row()
+        result = self.run_command("backup-db")
+        self.assertEqual(result.exit_code, 1, result.output)
+        self.assertIn("a row of the table attempt refers to a row of the table participant "
+                      "that does not exist", " ".join(result.output.split()))
+        self.assertFalse(self.folder.exists() and self.names())
+
+    def test_a_file_that_is_no_database_any_more_is_reported(self):
+        with open(self.database, "r+b") as handle:
+            handle.seek(4096)
+            handle.truncate()             # every table is gone; only the first page is left
+        result = self.run_command("backup-db")
+        self.assertEqual(result.exit_code, 1, result.output)
+        self.assertIn("The database is damaged: ", result.output)
+
+    def test_a_busy_database_is_not_called_damaged(self):
+        with mock.patch.object(maintenance, "database_problem",
+                               side_effect=sqlite3.OperationalError("database is locked")):
+            result = self.run_command("run-jobs", "--once")
+        self.assertEqual(result.exit_code, 1)
+        self.assertIn("The maintenance pass failed: database is locked", result.output)
+        self.assertNotIn("damaged", result.output)
+
+    def test_the_pass_fails_keeps_the_earlier_backups_and_records_no_success(self):
+        now = datetime.now(timezone.utc)
+        earlier = self.write_backup(now - timedelta(days=8))    # due to expire in this pass
+        self.delete_a_parent_row()
+        result = self.run_command("run-jobs", "--once")
+        self.assertEqual(result.exit_code, 1, result.output)
+        self.assertIn("The maintenance pass failed: The database is damaged: ", result.output)
+        self.assertEqual(self.names(), [earlier.name])          # kept, and no new one
+        with self.app.app_context():
+            self.assertIsNone(maintenance.last_pass())           # the health check will tell
+        self.assertEqual(self.run_command("jobs-status").exit_code, 1)
+
+    def test_the_earlier_backup_restores_what_the_damage_destroyed(self):
+        earlier = self.backup()
+        self.delete_a_parent_row()
+        self.assertEqual(self.count("participant"), 0)
+        result = self.run_command("restore-db", str(earlier), "--yes")
+        self.assertEqual(result.exit_code, 0, result.output)
+        self.assertEqual(self.count("participant"), 1)
+        with self.app.app_context():
+            self.assertIsNone(maintenance.database_problem(get_db()))
+
+
 class StopLoop(Exception):
     """Raised by the replaced timer to end the otherwise endless job loop."""
 
@@ -346,14 +463,39 @@ class JobTests(BackupCase):
         lines = result.output.splitlines()
         self.assertTrue(lines[0].startswith("Maintenance pass at 20"))
         self.assertEqual(lines[1], "Deleted 1 participant record(s) older than 90 days.")
-        self.assertTrue(lines[2].startswith("Encrypted backup written: "))
-        self.assertEqual(lines[3], "Deleted 1 backup(s) older than 7 days.")
+        self.assertEqual(lines[2], "Deleted 0 failed sign-in record(s) older than 15 minutes.")
+        self.assertTrue(lines[3].startswith("Encrypted backup written: "))
+        self.assertEqual(lines[4], "Deleted 1 backup(s) older than 7 days.")
         self.assertFalse(old.exists())
         # The purge ran first, so the new snapshot no longer holds the expired record.
         (snapshot,) = self.folder.glob("*.enc")
         plain = open_backup(self.key, snapshot.read_bytes())
         self.assertNotIn(expired.encode(), plain)
         self.assertIn(recent.encode(), plain)
+
+    def test_pass_forgets_failed_sign_ins_that_are_older_than_the_rate_limit_window(self):
+        # Defect D-4: only the sign-in form removed them, so without a sign-in
+        # they stayed in the database and went into every backup.
+        self.create_admin()
+        for name in ("guess-one", "guess-two", "guess-three"):
+            self.assertEqual(self.admin_sign_in(username=name).status_code, 401)
+        just_inside = datetime.now(timezone.utc) - timedelta(minutes=14)
+        with self.app.app_context():
+            get_db().execute(
+                "UPDATE admin_login_attempt SET attempted_at = '2026-01-01T00:00:00+00:00' "
+                "WHERE id < 3")
+            get_db().execute("UPDATE admin_login_attempt SET attempted_at = ? WHERE id = 3",
+                             (just_inside.isoformat(timespec="seconds"),))
+            get_db().commit()
+        result = self.run_command("run-jobs", "--once")
+        self.assertIn("Deleted 2 failed sign-in record(s) older than 15 minutes.", result.output)
+        self.assertEqual(self.count("admin_login_attempt"), 1)    # the recent one still counts
+        # The snapshot was written after the records were removed.
+        (snapshot,) = self.folder.glob("*.enc")
+        copy = sqlite3.connect(":memory:")
+        copy.deserialize(open_backup(self.key, snapshot.read_bytes()))
+        self.assertEqual(copy.execute("SELECT COUNT(*) FROM admin_login_attempt").fetchone()[0], 1)
+        copy.close()
 
     def test_pass_without_a_key_still_purges_and_reports_the_missing_backup(self):
         self.app.config["BACKUP_KEY"] = None
