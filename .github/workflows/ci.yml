@@ -3,6 +3,8 @@
 # Job 1, quality gate: every push must pass linting, the unit tests with a
 # statement-coverage threshold, static security analysis, and a dependency audit,
 # on the oldest supported Python and on the version the container image uses.
+# A contention test then runs the deployed arrangement of processes and threads
+# on one database file and checks that no record is lost or damaged.
 #
 # Job 2, container: the production image is built and started behind its HTTPS
 # reverse proxy exactly as docs/deployment.md describes. The job checks that the
@@ -68,6 +70,14 @@ jobs:
           coverage run -m pytest -q 2>&1 | tee pytest.log
           coverage report --fail-under=90 | tee coverage.txt
 
+      # Two processes with four threads each, as the web service is deployed, take
+      # journeys on one database file while close() on that file is delayed by
+      # 0.3 ms. Release 0.6.0 lost records under these conditions (defect D-7).
+      - name: Contention test (processes and threads on one database file)
+        run: |
+          python evaluation/contention.py --markdown "$GITHUB_STEP_SUMMARY" 2> contention.err \
+            | tee contention.log
+
       - name: Static security analysis (Bandit)
         run: bandit -r src wsgi.py gunicorn.conf.py -ll 2>&1 | tee bandit.txt
 
@@ -76,11 +86,15 @@ jobs:
 
       - name: Publish the results
         if: always()
-        run: python scripts/ci_summary.py quality
+        run: |
+          python scripts/ci_summary.py quality
+          python scripts/ci_summary.py notice "Contention test" contention.log
 
       - name: Show the end of each log if a step failed
         if: failure()
-        run: python scripts/ci_summary.py failure install.log pytest.log coverage.txt bandit.txt audit.txt
+        run: |
+          python scripts/ci_summary.py failure install.log pytest.log coverage.txt \
+            contention.err bandit.txt audit.txt
 
   container:
     name: Build the image and smoke-test the HTTPS stack
